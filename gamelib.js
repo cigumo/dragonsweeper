@@ -33,6 +33,7 @@ let mouseJustPressed = false;
 let mousePressedRight = false;
 let mouseJustPressedRight = false;
 let mouseDragging = false;
+let mouseJustDragged = false;
 let mouseDragLastX = 0;
 let mouseDragLastY = 0;
 let mouseDragSpeedX = 0;
