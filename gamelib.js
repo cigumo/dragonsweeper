@@ -15,7 +15,6 @@ let ZOOMY = 1;
 let WORLDW = 600;
 let WORLDH = 600;
 let backBuffer;
-let upscaledBackBuffer;
 let smoothing = false;
 let playerInteracted = false;
 let allSounds = [];
@@ -63,18 +62,6 @@ class StripFrame
         this.pivotx = 0;
         this.pivoty = 0;
     }
-}
-
-function loadSoundStreamed(path)
-{
-    let ret = new Audio(path);
-    ret.preload = "none";
-    // ret.load();
-    ret.onloadeddata = function()
-    {
-        allSounds.push(ret);
-    };
-    return ret;    
 }
 
 function loadSound(path)
@@ -227,7 +214,7 @@ function fitCanvas()
         }
         else
         {
-            targetH = windowH * 0.975;
+            targetH = windowH * 0.95;
             targetW = targetH * widthOverHeight;    
         }
         smoothing = true;
@@ -252,22 +239,6 @@ function fitCanvas()
 
 function onLoadPage()
 {
-    document.addEventListener("focus",
-        (event) => 
-        {
-            shiftIsPressed = false;
-        },
-        true,
-      );
-
-      document.addEventListener(
-        "blur",
-        (event) => {
-            shiftIsPressed = false;
-        },
-        true,
-      );
-
     document.addEventListener("touchstart", 
         function (evt)
         {
@@ -325,7 +296,6 @@ function onLoadPage()
 
     document.onmousedown = function (e) 
     {
-        shiftIsPressed = e.shiftKey;
         if(e.button == 0)
         {
             mousePressed = true;
@@ -358,13 +328,13 @@ function onLoadPage()
     { 
         keysJustPressed.push(keyEvent.key);
         keysPressed.push(keyEvent.key);
-        shiftIsPressed = keyEvent.shiftKey;
+        if(keyEvent.shiftKey) shiftIsPressed = true;
     };
 
     document.onkeyup = function (keyEvent)
     {
         keysPressed = keysPressed.filter(k => k != keyEvent.key);
-        shiftIsPressed = keyEvent.shiftKey;
+        if(!keyEvent.shiftKey) shiftIsPressed = false;
     };
 
     // schedule stuff to load
@@ -376,10 +346,6 @@ function onLoadPage()
     backBuffer = document.createElement("canvas");
     backBuffer.width = WORLDW;
     backBuffer.height = WORLDH;
-
-    upscaledBackBuffer = document.createElement("canvas");
-    upscaledBackBuffer.width = backBuffer.width * 2;
-    upscaledBackBuffer.height = backBuffer.height * 2;
 
     canvas = document.createElement("canvas");
     fitCanvas();
@@ -413,22 +379,9 @@ function onInternalUpdate(now)
         onUpdate(UpdatePhase.Updating, dt);
     }
 
-    // flip backbuffer
     let ctx = get2DContext(canvas);
     ctx.imageSmoothingEnabled = smoothing;
-    // upscale the backbuffer if stretching
-    if(screenMode == WindowMode.FitScreen)
-    {
-        let doubleCtx = upscaledBackBuffer.getContext("2d");
-        doubleCtx.imageSmoothingEnabled = false;
-        doubleCtx.drawImage(backBuffer, 0, 0, backBuffer.width, backBuffer.height, 0, 0, upscaledBackBuffer.width, upscaledBackBuffer.height);
-        ctx.imageSmoothingEnabled = true;
-        ctx.drawImage(upscaledBackBuffer, 0, 0, upscaledBackBuffer.width, upscaledBackBuffer.height, 0, 0, canvas.width, canvas.height);
-    }
-    else
-    {
-        ctx.drawImage(backBuffer, 0, 0, backBuffer.width, backBuffer.height, 0, 0, canvas.width, canvas.height);
-    }
+    ctx.drawImage(backBuffer, 0, 0, backBuffer.width, backBuffer.height, 0, 0, canvas.width, canvas.height);
 
     keysJustPressed = [];
     mouseJustPressed = false;
@@ -544,20 +497,17 @@ class Rect
 /** @param {CanvasRenderingContext2D} ctx*/
 function drawFrame(ctx, strip, frameIndex, x, y, flipX = false)
 {
-    console.assert(frameIndex < strip.frames.length, "invalid frame: "+frameIndex);
     let frame = strip.frames[frameIndex];
     ctx.save();
-    let finalx = Math.floor(x - frame.pivotx);
-    let finaly = Math.floor(y - frame.pivoty);
     if(flipX)
     {
-        ctx.translate(finalx, finaly);
+        ctx.translate(x + frame.pivotx, y - frame.pivoty);
         ctx.scale(-1, 1);
         ctx.drawImage(frame.img, 0, 0);
     }
     else
     {
-        ctx.translate(finalx, finaly);
+        ctx.translate(x - frame.pivotx, y - frame.pivoty);
         ctx.drawImage(frame.img, 0, 0);
     }
     ctx.restore();
@@ -762,8 +712,6 @@ class BitmapFont
         {
             starty = y + this.lineh;
         }
-        startx = Math.floor(startx);
-        starty = Math.floor(starty);
         return this.processLine(ctx, text, startx, starty, area.w, true, clip);
     }
 
