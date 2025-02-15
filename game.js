@@ -1995,7 +1995,7 @@ function updateBook(ctx, dt, worldR, HUDRect, clickedLeft)
 
         // fontBook.drawLine(ctx, "score: "+state.player.score, bookRight.centerx(), bookRight.bottom() - 20, FONT_CENTER);
 
-        fontUIBook.drawLine(ctx, version, bookLeft.right() - 50, bookRight.bottom() - 12);
+        fontUIBook.drawLine(ctx, version, bookLeft.right() - 64, bookRight.bottom() - 12);
 
         drawFrame(ctx, stripBookFlap, 0, flapR.centerx() - 2, flapR.centery() - 2);
         if(clickedLeft && flapR.contains(mousex, mousey))
