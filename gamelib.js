@@ -6,6 +6,8 @@ class WindowMode
 {
     static FitScreen = "fit_screen";
     static RealPixels = "real_pixels";
+    static ScrollHorizontal = "scroll_horizontal";
+    static ScrollVertical = "scroll_vertical";
 }
 
 /** @type {HTMLCanvasElement} */
@@ -30,6 +32,21 @@ let mousePressed = false;
 let mouseJustPressed = false;
 let mousePressedRight = false;
 let mouseJustPressedRight = false;
+let mouseDragging = false;
+let mouseDragLastX = 0;
+let mouseDragLastY = 0;
+let mouseDragSpeedX = 0;
+let mouseDragSpeedY = 0;
+let mouseDragInertiaDampening = 3.0
+let mouseDragInertiaThreshold = 50 
+let mouseDragInertiaTime = 0
+let mouseDragInertiaMaxSpeed = WORLDW
+let ignoreNextLeftClick = false;
+let touchStartX = 0;
+let touchStartY = 0;
+let touchMoveThreshold = 5;
+let backBufferOffsetX = 0;
+let backBufferOffsetY = 0;
 let screenMode = WindowMode.FitScreen;
 let keysJustPressed = [];
 let keysPressed = [];
@@ -212,7 +229,8 @@ function loadFont(imagePath, cellw, cellh, pivotx, pivoty, charMap, hasCapitaliz
 
 function fitCanvas()
 {
-    screenMode = isMobile() ? WindowMode.FitScreen : WindowMode.FitScreen;
+    screenMode = isMobile() ? WindowMode.ScrollHorizontal : WindowMode.FitScreen;
+
     let windowW = window.innerWidth;
     let windowH = window.innerHeight;
     let targetW = windowW;
@@ -238,6 +256,12 @@ function fitCanvas()
         smoothing = false;
         targetW = backBuffer.width * ZOOMX;// / window.devicePixelRatio;
         targetH = backBuffer.height * ZOOMY;// / window.devicePixelRatio;
+    }
+    else if (screenMode == WindowMode.ScrollHorizontal)
+    {
+        smoothing = true;
+        targetH = windowH * 1
+        targetW = targetH * WORLDW/WORLDH
     }
     canvas.width = targetW;
     canvas.height = targetH;
@@ -271,9 +295,13 @@ function onLoadPage()
     document.addEventListener("touchstart", 
         function (evt)
         {
+            console.log("touchstart")
             evt.preventDefault();
+
+            //activatePlayerInteraction();
+            
             mousePressed = true;
-            mouseJustPressed = true;
+            mouseDragging = false;
             var rect = canvas.getBoundingClientRect();
             for(var i = 0; i < evt.touches.length; i++)
             {
@@ -281,6 +309,8 @@ function onLoadPage()
                 mouseScreenX = touch.clientX - rect.x;
                 mouseScreenY = touch.clientY - rect.y;
             }
+            touchStartX = mouseScreenX
+            touchStartY = mouseScreenY
         },
     { passive: false });
 
@@ -289,11 +319,18 @@ function onLoadPage()
         {
             evt.preventDefault();
             var rect = canvas.getBoundingClientRect();
+            mouseDragLastX = mouseScreenX;
+            mouseDragLastY = mouseScreenY;
             for(var i = 0; i < evt.touches.length; i++)
             {
                 let touch = evt.touches[i];
                 mouseScreenX = touch.clientX - rect.x;
                 mouseScreenY = touch.clientY - rect.y;
+            }
+            if (Math.abs(mouseScreenX-touchStartX) > touchMoveThreshold
+                || Math.abs(mouseScreenY-touchStartY) > touchMoveThreshold) {
+                mouseDragging = true;
+                mouseJustDragged = true
             }
         },
         { passive: false });
@@ -301,21 +338,43 @@ function onLoadPage()
     document.addEventListener("touchend",
         function (evt)
         {
+            console.log("touchend:  dragging:" + mouseDragging)            
             evt.preventDefault();
-            activatePlayerInteraction();
+            activatePlayerInteraction();            
+            
+            if (!mouseDragging) {
+                mouseJustPressed = true;
+            }
             mousePressed = false;
+            mouseDragging = false;
+            
         },
         { passive: false });
 
 
     document.onmousemove = function (me) 
     {
+        if (isMobile())
+            return;
+
+        if (mouseDragging) {
+            mouseJustDragged = true
+            mouseDragLastX = mouseScreenX;
+            mouseDragLastY = mouseScreenY;
+        }            
         var rect = canvas.getBoundingClientRect();
         mouseScreenX = me.clientX - rect.x; 
         mouseScreenY = me.clientY - rect.y;
+        if (mouseJustDragged) {
+            console.log("mouse drag delta X:" + (mouseScreenX - mouseDragLastX))
+        }
+            
     };
 
-    document.onclick = function(me) {activatePlayerInteraction();}
+    document.onclick = function(me) {
+        console.log("onclick")
+        activatePlayerInteraction();
+    }
 
     document.addEventListener('contextmenu', (event) => 
     {
@@ -325,11 +384,17 @@ function onLoadPage()
 
     document.onmousedown = function (e) 
     {
+        if (isMobile())
+            return;
+        console.log("onmousedown")
         shiftIsPressed = e.shiftKey;
         if(e.button == 0)
         {
             mousePressed = true;
             mouseJustPressed = true;
+            if (shiftIsPressed) {
+                mouseDragging = true
+            }
         }
         else
         if (e.which && e.which === 3 || e.button === 2)
@@ -337,12 +402,18 @@ function onLoadPage()
             mousePressedRight = true;
             mouseJustPressedRight = true;
         }
-        activatePlayerInteraction();
+        //activatePlayerInteraction();
     };
 
     document.onmouseup = function (e) 
     {
         // console.log("mup button:"+me.button+" buttons:"+me.buttons + " target: "+me.target);
+        if (isMobile())
+            return;
+
+        console.log("onmouseup")
+        
+        mouseDragging = false
         if(e.button == 0)
         {
             mousePressed = false;
@@ -386,6 +457,10 @@ function onLoadPage()
     document.body.appendChild(canvas);
     window.onresize = fitCanvas;
 
+    canvas.addEventListener('touchstart', function(e) { e.preventDefault(); });
+    canvas.addEventListener('touchmove', function(e) { e.preventDefault(); });
+    canvas.addEventListener('touchend', function(e) { e.preventDefault(); });
+    
     window.requestAnimationFrame(onInternalUpdate);
 }
 
@@ -396,9 +471,68 @@ function onInternalUpdate(now)
     lastUpdateTime = Date.now();
     timeElapsed += dt;
 
-    mousex = (mouseScreenX / canvas.width) * backBuffer.width;
-    mousey = (mouseScreenY / canvas.height) * backBuffer.height;
+    // back buffer drag and inertia
+    if (isMobile()) {
+        let f = backBuffer.height / canvas.height
+        let wiw = window.innerWidth
+        let wih = window.innerHeight
+        let bbw = backBuffer.width
+        let bbh = backBuffer.height
+        let dragLimits = getBackBufferDragLimits()
+        let dragLimitsX = dragLimits[0]
+        let dragLimitsY = dragLimits[1]
+        let bbdx = 0
+        let bbdy = 0
+        let speedThreshold = window.innerWidth / mouseDragInertiaThreshold
+        
+        if (mouseDragging) {
+            let dx = f * (mouseScreenX - mouseDragLastX)
+            let dy = f * (mouseScreenY - mouseDragLastY)
+            mouseDragInertiaTime = lastUpdateTime
+            mouseDragSpeedX = dx/dt
+            mouseDragSpeedY = dy/dt
 
+            if (mouseJustDragged) {
+                if (screenMode == WindowMode.ScrollHorizontal) {
+                    bbdx = backBufferOffsetX + dx
+                } else if (screenMode == WindowMode.ScrollVertical) {
+                    bbdy = backBufferOffsetY + dy
+                }
+            }
+        } else if (mousePressed) {
+            mouseDragSpeedX = 0
+            mouseDragSpeedX = 0
+        } else if (Math.abs(mouseDragSpeedX) > speedThreshold || Math.abs(mouseDragSpeedY) > speedThreshold) {
+            // inertial movement
+            bbdx = backBufferOffsetX + mouseDragSpeedX * dt
+            bbdy = backBufferOffsetY + mouseDragSpeedY * dt
+            // stop if outside drag limits
+            if (bbdx < dragLimitsX[0] || bbdx > dragLimitsX[1]) {
+                mouseDragSpeedX = 0
+            }
+            if ( bbdx < dragLimitsX[0] || bbdx > dragLimitsX[1]) {
+                mouseDragSpeedY = 0
+            }
+            // decay speed
+            if (mouseDragSpeedX != 0 || mouseDragSpeedY != 0) {
+                let maxSpeed = mouseDragInertiaMaxSpeed
+                let speedFactor = (1 - dt*mouseDragInertiaDampening)
+                mouseDragSpeedX = clamp(0, maxSpeed, Math.abs(mouseDragSpeedX) * speedFactor) * Math.sign(mouseDragSpeedX)
+                mouseDragSpeedY = clamp(0, maxSpeed, Math.abs(mouseDragSpeedY) * speedFactor) * Math.sign(mouseDragSpeedY)
+            }
+            //console.log("mouseDragSpeedX:"+mouseDragSpeedX)
+        }
+        if (bbdx != 0 || bbdy != 0) {
+            // move backbuffer
+            backBufferOffsetX = clamp(dragLimitsX[0], dragLimitsX[1], bbdx)
+            backBufferOffsetY = clamp(dragLimitsY[0], dragLimitsY[1], bbdy)
+        }
+    }
+    
+    let mxy = screen2world(mouseScreenX,mouseScreenY)
+    mousex = mxy[0]
+    mousey = mxy[1]
+    
     if(pendingStuffToLoad > 0)
     {
         onUpdate(UpdatePhase.Loading, dt);
@@ -433,6 +567,7 @@ function onInternalUpdate(now)
     keysJustPressed = [];
     mouseJustPressed = false;
     mouseJustPressedRight = false;
+    mouseJustDragged = false;
     window.requestAnimationFrame(onInternalUpdate);
 }
 
@@ -542,7 +677,7 @@ class Rect
 }
 
 /** @param {CanvasRenderingContext2D} ctx*/
-function drawFrame(ctx, strip, frameIndex, x, y, flipX = false)
+function drawFrame(ctx, strip, frameIndex, x, y, flipX = false, scale = 1)
 {
     console.assert(frameIndex < strip.frames.length, "invalid frame: "+frameIndex);
     let frame = strip.frames[frameIndex];
@@ -552,12 +687,13 @@ function drawFrame(ctx, strip, frameIndex, x, y, flipX = false)
     if(flipX)
     {
         ctx.translate(finalx, finaly);
-        ctx.scale(-1, 1);
+        ctx.scale(-scale, scale);
         ctx.drawImage(frame.img, 0, 0);
     }
     else
     {
         ctx.translate(finalx, finaly);
+        ctx.scale(scale, scale);
         ctx.drawImage(frame.img, 0, 0);
     }
     ctx.restore();
@@ -733,7 +869,7 @@ class BitmapFont
         }
     }
 
-    drawLine(ctx, text, x, y, centering = 0, clip = null)
+    drawLine(ctx, text, x, y, centering = 0, clip = null, scale=1)
     {
         let area = new Rect();
         area.w = 10000;
@@ -972,6 +1108,13 @@ function clamp01(v)
     return Math.max(0, Math.min(1, v));
 }
 
+function clamp(min,max,v)
+{
+    let mmin = Math.min(min,max)
+    let mmax = Math.max(min,max)
+    return Math.max(mmin, Math.min(mmax,v))
+}
+
 function randomColor()
 {
     return Math.floor(Math.random() * 16777215).toString(16);
@@ -987,7 +1130,7 @@ function activatePlayerInteraction()
 {
     if(!playerInteracted)
     {
-        // console.log("activating player interaction");
+        console.log("activating player interaction");
         playerInteracted = true;
         // play one sound to trigger the sound loadings
         if(allSounds.length > 0)
@@ -1039,7 +1182,7 @@ function multiplyImageColor(image, colorMultiplier)
 function isMobile()
 {
     let isMobile = ('ontouchstart' in document.documentElement && /mobi/i.test(navigator.userAgent));
-    // isMobile = true;
+    //isMobile = true;
     return isMobile;
 }
 
@@ -1067,4 +1210,28 @@ function showLoadingC64(ctx, rect)
         offy += bandH;
     }
     ctx.restore();
+}
+
+function screen2world(x,y)
+{
+    let f = (backBuffer.height / canvas.height)
+    return [(f*x - backBufferOffsetX),(f*y - backBufferOffsetY)]
+}
+
+function scale2world(w,h)
+{
+    let f = (backBuffer.height / canvas.height)
+    return [f*w, f*h]
+}
+
+function getBackBufferDragLimits()
+{
+    let f = backBuffer.height / canvas.height
+    let wiw = window.innerWidth
+    let wih = window.innerHeight
+    let bbw = backBuffer.width
+    let bbh = backBuffer.height
+    let dragLimitsX = [-bbw+wiw*f ,0]
+    let dragLimitsY = [-bbh+wih*f ,0]
+    return [dragLimitsX,dragLimitsY]
 }

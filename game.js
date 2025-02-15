@@ -51,7 +51,7 @@ let collectedStamps = [];
 
 let sndEvents = {};
 
-const version = "v1.1.18";
+const version = "v1.1.18-c1";
 const TIME_TO_HOVER_MENU = 0.33;
 const BOOK_MOVEMENT_DURATION = 1;
 const MAX_HP = 19;
@@ -361,6 +361,9 @@ class GameState
         /** @type {string[]} */
         this.stampsCollectedThisRun = [];
         this.killedRats = 0;
+
+        this.screenOffsetX = 0;
+        this.screenOffsetY = 0;
     }
 }
 
@@ -2140,6 +2143,20 @@ function updateGeneratingDungeon(ctx, dt)
         {
             state.status = GameStatus.Playing;
             state.startTime = Date.now();
+
+            // center world and move the backBuffer a bit to show that it can be dragged
+            if (isMobile()) {
+                let dragLimits = getBackBufferDragLimits()
+                if (screenMode == WindowMode.ScrollHorizontal) {
+                    let drx = dragLimits[0]
+                    backBufferOffsetX = (drx[0]+drx[1])/2
+                    mouseDragSpeedX = mouseDragInertiaMaxSpeed / 6
+                } else if (screenMode == WindowMode.ScrollVertical) {
+                    let dry = dragLimits[1]
+                    backBufferOffsetY = (dry[0]+dry[1])/2
+                    mouseDragSpeedY = mouseDragInertiaMaxSpeed / 6
+                }
+            }
         }
     }
     else
@@ -2156,7 +2173,14 @@ function updateGeneratingDungeon(ctx, dt)
     ctx.save();
     ctx.fillStyle = "#293333";
     ctx.fillRect(0, 0, worldR.w, worldR.h);
-    fontHUD.drawLine(ctx, "building dragon lair...", worldR.centerx(), worldR.centery(), FONT_CENTER|FONT_VCENTER);
+
+    let middle = []
+    if (isMobile()) 
+        middle = screen2world(window.innerWidth/2,window.innerHeight/2)
+    else
+        middle = [worldR.centerx(),worldR.centery()]
+    
+    fontHUD.drawLine(ctx, "building dragon lair...", middle[0],middle[1], FONT_CENTER|FONT_VCENTER);
     ctx.restore();
 }
 
@@ -2165,9 +2189,11 @@ function updatePlaying(ctx, dt)
     let worldR = new Rect();
     worldR.w = backBuffer.width;
     worldR.h = backBuffer.height;
+    let screenSizeInWorldCoords = scale2world(window.innerWidth, window.innerHeight)
     let HUDRect = new Rect();
-    HUDRect.w = backBuffer.width;
+    HUDRect.w = isMobile() ? screenSizeInWorldCoords[0] : backBuffer.width;
     HUDRect.h = 41;
+    HUDRect.x = isMobile() ? -backBufferOffsetX : 0
     HUDRect.y = backBuffer.height - HUDRect.h;
     let oldPlayerHP = state.player.hp;
     let oldPlayerXP = state.player.xp;
@@ -2202,6 +2228,10 @@ function updatePlaying(ctx, dt)
     {
         let hoverTileR = getRectForTile(state.hoverMenu.actor.tx, state.hoverMenu.actor.ty);
 
+        let offy = 0;
+        let offx = 0;
+        let basex = isMobile() ? -backBufferOffsetX : hoverTileR.right();
+        let basey = hoverTileR.y;
         let markerButtonTotalW = 4 * 24;
         let markerButtonTotalH = 4 * 24;
         let basex = hoverTileR.right();
@@ -2221,8 +2251,10 @@ function updatePlaying(ctx, dt)
             basey = 0;
         }
 
-        let offy = 0;
-        let offx = 0;
+        if (isMobile()) {
+            basey = backBuffer.height - 24*2
+        }
+
         let cols = 0;
         for(let i = 0; i < ALL_MARKERS.length; i++)
         {
@@ -2235,15 +2267,25 @@ function updatePlaying(ctx, dt)
             hoverRects.push(r);
             hoverMarkers.push(ALL_MARKERS[i]);
             cols++;
-            if(cols == 4)
-            {
-                cols = 0;
-                offy += r.h;
-                offx = 0;
-            }
-            else
-            {
-                offx += r.w;
+            if (isMobile()) {
+                if (cols == 8) {
+                    cols = 0
+                    offy += r.h
+                    offx = 0
+                } else {
+                    offx += r.w;                    
+                }
+            } else {
+                if(cols == 4)
+                {
+                    cols = 0;
+                    offy += r.h;
+                    offx = 0;
+                }
+                else
+                {
+                    offx += r.w;
+                }
             }
         }
     }
@@ -2251,7 +2293,21 @@ function updatePlaying(ctx, dt)
     // input
     let clickedRight = supportsRightClick() && (mouseJustPressedRight || (mouseJustPressed && shiftIsPressed));
     let clickedLeft = mouseJustPressed && !clickedRight;
-
+    if (mouseJustPressed) {
+        console.log("mouseJustPressed - clickedLeft:" + clickedLeft)
+    }
+    if (isMobile() && clickedLeft && ignoreNextLeftClick) {
+        // After the hover menu appears, the player releases the touch and a left click is detected.
+        // This prevents the menu from being hidden.
+        ignoreNextLeftClick = false;
+        clickedLeft = false;
+        console.log("ignored left click")
+    }
+    
+    if (clickedLeft || clickedRight) {
+        console.log('clickedLeft:' + clickedLeft + ' clickedRight:' + clickedRight + " || shift:"+shiftIsPressed + " mjust:"+mouseJustPressed)
+    }
+    
     if(!mousePressed)
     {
         state.timeElapsedPushingButton = 0;
@@ -2278,6 +2334,7 @@ function updatePlaying(ctx, dt)
 
         if(hoveringOverTileIndex >= 0 && (clickedLeft || clickedRight))
         {
+            console.log('about to hide the hover menu')
             let mark = hoverMarkers[hoveringOverTileIndex] == ALL_MARKERS[ALL_MARKERS.length - 1] ? 0 : hoverMarkers[hoveringOverTileIndex];
             if(mark == state.hoverMenu.actor?.mark) mark = 0;
             // @ts-ignore
@@ -2285,6 +2342,7 @@ function updatePlaying(ctx, dt)
             play(mark == 0 ? "remove_mark": "mark");
             clickedSomewhere = true;
             state.hoverMenu.resetTo(null);
+            clickedLeft = false
         }
 
         // did I just move the menu elsewhere?
@@ -2309,11 +2367,22 @@ function updatePlaying(ctx, dt)
             {
                 state.hoverMenu.resetTo(null);
                 play("close_hover");
+                clickedLeft = false                
             }        
         }
     }
     else
     {
+        if (isMobile() && mousePressed && !mouseDragging && !ignoreNextLeftClick) {
+            state.timeElapsedPushingButton += dt;
+            if (state.timeElapsedPushingButton > TIME_TO_HOVER_MENU) {
+                clickedRight = true
+                ignoreNextLeftClick = true
+                state.timeElapsedPushingButton = 0;
+                state.lastPushedButtonIndex = -1;
+            }
+        }
+        
         state.lastHoveredHoverButtonIndex = -1;
         for(let i = 0; i < activeActors.length; i++)
         {
@@ -2322,14 +2391,20 @@ function updatePlaying(ctx, dt)
             if((!a.revealed || !isEmpty(a)) && state.status == GameStatus.Playing && r.contains(mousex, mousey) && !state.showingMonsternomicon)
             {
                 hoveringActorIndex = i;
-                // if(mousePressed) pressedActorIndex = i;
+                //if (isMobile() && mousePressed)
+                //    state.lastPushedButtonIndex = i;
                 if(clickedLeft) state.lastPushedButtonIndex = i;
                 if(clickedRight) cycleMarkerActorIndex = i;
             }
+
+            //console.log('actor:'+a + " r.contains(mousex, mousey):" + r.contains(mousex, mousey))
         }
 
+        
         if(state.lastPushedButtonIndex >= 0)
         {
+            console.log("state.lastPushedButtonIndex: " + state.lastPushedButtonIndex)
+            
             let a = activeActors[state.lastPushedButtonIndex];
             let r = actorRects[state.lastPushedButtonIndex];
 
@@ -2345,8 +2420,9 @@ function updatePlaying(ctx, dt)
                 state.lastPushedButtonIndex = -1;
             }
             else
-            if(!state.hoverMenu.isActive())
+            if(!state.hoverMenu.isActive() && !mouseDragging)
             {
+                console.log('incrementing hover time: ' + state.timeElapsedPushingButton)
                 state.timeElapsedPushingButton += dt;
                 if(state.timeElapsedPushingButton > TIME_TO_HOVER_MENU)
                 {
@@ -2927,8 +3003,9 @@ function updatePlaying(ctx, dt)
     heroR.w = 32;
     heroR.h = 32;
     heroR.y = HUDRect.centery() - heroR.h * 0.5 - 3;
-    heroR.x = 55;
+    heroR.x = HUDRect.x + (isMobile() ? 5 : 55)
 
+    
     let levelupButtonR = new Rect();
     levelupButtonR.w = 30;
     levelupButtonR.h = HUDRect.h;
@@ -3147,7 +3224,10 @@ function updatePlaying(ctx, dt)
     let nomiconR = new Rect();
     nomiconR.w = 32;
     nomiconR.h = 32;
-    nomiconR.x = lerp(13, worldR.right() - nomiconR.w - 5, 1 - state.bookLocationElapsed/BOOK_MOVEMENT_DURATION);
+    if (isMobile()) 
+        nomiconR.x = HUDRect.right() - nomiconR.w - 5
+    else
+        nomiconR.x = lerp(13, worldR.right() - nomiconR.w - 5, 1 - state.bookLocationElapsed/BOOK_MOVEMENT_DURATION);
     nomiconR.y = HUDRect.centery() - nomiconR.h * 0.5;
 
     if(clickedLeft && nomiconR.contains(mousex, mousey))
@@ -3221,14 +3301,16 @@ function updatePlaying(ctx, dt)
     //     }
     // }
 
-    // screen shake
-    let screenx = 0;
-    let screeny = 0;
+
+    let screenx = backBufferOffsetX;
+    let screeny = backBufferOffsetY;
+
+    // screen shake    
     if(state.screenShakeTimer > 0)
     {
         state.screenShakeTimer -= dt;
-        screenx = rnd(-2, 2);
-        screeny = rnd(-1, 1);
+        screenx += rnd(-2, 2);
+        screeny += rnd(-1, 1);
     }
 
     // rendering
@@ -3349,38 +3431,6 @@ function updatePlaying(ctx, dt)
         ctx.restore();
     }
 
-    // menu rendering
-    if(state.hoverMenu.isActive())
-    {
-        let menu = state.hoverMenu;
-
-        // render a frame over the selected actor
-        // @ts-ignore
-        let r = getRectForTile(state.hoverMenu.actor.tx, state.hoverMenu.actor.ty);
-        drawFrame(ctx, stripButtons, 40, r.centerx(), r.centery());
-
-        for(let i = 0; i < hoverRects.length; i++)
-        {
-            let r = hoverRects[i];
-            drawFrame(ctx, stripIconsBig, 2, r.centerx(), r.centery());
-            let offy = state.lastHoveredHoverButtonIndex == i ? 0 : 0;
-            drawMarker(ctx, hoverMarkers[i], r.centerx(), r.centery()+offy);
-        }
-    }
-    else
-    if(state.timeElapsedPushingButton > 0 && state.lastPushedButtonIndex >= 0)
-    {
-        let a = state.actors[state.lastPushedButtonIndex];
-        let r = getRectForTile(a.tx, a.ty);
-        // drawFrame(ctx, stripButtons, 40, r.centerx(), r.centery());
-        let circleFrames = [41, 42];
-        let circleFrame = Math.floor((clamp01(state.timeElapsedPushingButton/TIME_TO_HOVER_MENU) * 4) % 2);
-        if(state.timeElapsedPushingButton > 0.12)
-        {
-            drawFrame(ctx, stripButtons, circleFrames[circleFrame], r.centerx(), r.centery());
-        }
-    }
-    
 
     // monsternomicon
     if(state.showingMonsternomicon)
@@ -3389,12 +3439,14 @@ function updatePlaying(ctx, dt)
     }
 
     // hud
+    //drawFrame(ctx, stripHUD, 0, HUDRect.centerx(), HUDRect.centery());
     drawFrame(ctx, stripHUD, 0, HUDRect.centerx(), HUDRect.centery());
-
+    
     // hero
     let heroButtonEnabled = isLevelupButtonEnabled || isRestartButtonEnabled;
     drawFrame(ctx, stripLevelupButtons, heroButtonEnabled ? 0 : 1, levelupButtonR.centerx(), levelupButtonR.centery() + 1);
-    fontHUD.drawLine(ctx, "Jorge", 10, heroR.centery() + 1, FONT_VCENTER);
+    if (!isMobile())
+        fontHUD.drawLine(ctx, "Jorge", 10, heroR.centery() + 1, FONT_VCENTER);
 
     ctx.save();
     ctx.translate(heroR.centerx() - 1, heroR.centery());
@@ -3403,9 +3455,12 @@ function updatePlaying(ctx, dt)
     else if(state.heroAnim.running()) drawFrame(ctx, stripHero, state.heroAnim.frame(), 0, 0);
     ctx.restore();
 
+    let hudLabelsOffX = HUDRect.x + 60
+    
     // hp
     if(state.status == GameStatus.Playing)
     {
+        
         let heartOffsets = [];
         let hpx = 0;
         let hpy = 0;
@@ -3424,17 +3479,28 @@ function updatePlaying(ctx, dt)
 
         let offx = heroR.right() + 10;
         let offy = worldR.h - 29;
-        for(let i = 0; i < heartOffsets.length; i++)
-        {
-            if(i == 0) continue; // skip first heart
-            let icon = 2; // blank
-            if(i < state.player.hp) icon = 0; // full
-            else if(i < state.player.maxHP) icon = 1; // empty
-            else if(i == state.player.maxHP && isLevelHalfHeart(state.player.level)) icon = 153;
-            let anim = state.heartAnimations.find(anim => anim.index == i);
-            if(anim != undefined) icon = anim.frames[anim.timer.frame];
-            let coords = heartOffsets[i-1];
-            drawFrame(ctx, stripIcons, icon, coords[0] + offx, coords[1] + offy);
+        //let msc = isMobile() ? 0.5 : 1
+        let msc = 1
+
+        if (isMobile()) {
+            // mobile hud: draw one heart y the HP numbers
+            let ch1 = heartOffsets[0]
+            let ch2 = heartOffsets[1]
+            drawFrame(ctx, stripIcons, 0, ch1[0] + offx, ch1[1] + offy, false, msc);
+            fontHUD.drawLine(ctx, ""+(state.player.hp-1)+" of "+(state.player.maxHP-1), hudLabelsOffX, ch2[1]+offy-1, FONT_VCENTER )
+        } else {
+            for(let i = 0; i < heartOffsets.length; i++)
+            {
+                if(i == 0) continue; // skip first heart
+                let icon = 2; // blank
+                if(i < state.player.hp) icon = 0; // full
+                else if(i < state.player.maxHP) icon = 1; // empty
+                else if(i == state.player.maxHP && isLevelHalfHeart(state.player.level)) icon = 153;
+                let anim = state.heartAnimations.find(anim => anim.index == i);
+                if(anim != undefined) icon = anim.frames[anim.timer.frame];
+                let coords = heartOffsets[i-1];
+                drawFrame(ctx, stripIcons, icon, coords[0]*msc + offx, coords[1] + offy, false, msc);
+            }
         }
     }
 
@@ -3445,6 +3511,7 @@ function updatePlaying(ctx, dt)
         let xpOffsetsX = [];
         let xpX = 0;
         let xp = Math.min(state.player.xp, xpTotal);
+        let msc = 1
         for(let i = 0; i < xpTotal; i++)
         {
             xpOffsetsX.push(xpX);
@@ -3454,21 +3521,42 @@ function updatePlaying(ctx, dt)
         }
 
         let offx = heroR.right() + 10;//(worldR.w - xpOffsetsX[xpOffsetsX.length - 1])/2;
-        for(let i = 0; i < xpOffsetsX.length; i++)
-        {
-            let icon = i < xp ? 6 : 7;
-            let anim = state.xpAnimations.find(anim => anim.index == i);
-            if(anim != undefined) icon = anim.frames[anim.timer.frame];
-            let offy = worldR.h - 14;
-            if((i % 2) == 0) offy += 6;
-            drawFrame(ctx, stripIcons, icon, xpOffsetsX[i] + offx, offy);
-        }
-        offx += xpOffsetsX[xpOffsetsX.length - 1] + 12;
+        let offy = worldR.h - 14;
+        if(isMobile()) {
+            // mobile hud: draw an icon, + sign and text line
+            let icon = 6
 
-        if(state.player.xp > nextLevelXP(state.player.level))
-        {
-            drawFrame(ctx, stripIcons, 56, offx, worldR.h - 12);
+            let anim = state.xpAnimations.find(anim => anim.index == 0);
+            if(anim != undefined) icon = anim.frames[anim.timer.frame];
+            drawFrame(ctx, stripIcons, icon, xpOffsetsX[0]*msc + offx, offy+1, false, msc);
+
+            if(state.player.xp > nextLevelXP(state.player.level))
+            {
+                offx += xpOffsetsX[0] + 6
+                drawFrame(ctx, stripIcons, 56, offx, offy-4);
+            }
+            let loffy = worldR.h - 14
+            fontHUD.drawLine(ctx, ""+state.player.xp+" of "+xpTotal, hudLabelsOffX,loffy,  FONT_VCENTER )            
+
+            
+        } else {
+            for(let i = 0; i < xpOffsetsX.length; i++)
+            {
+                let icon = i < xp ? 6 : 7;
+                let anim = state.xpAnimations.find(anim => anim.index == i);
+                if(anim != undefined) icon = anim.frames[anim.timer.frame];
+                offy = worldR.h - 14;
+                if((i % 2) == 0) offy += 6;
+                drawFrame(ctx, stripIcons, icon, xpOffsetsX[i]*msc + offx, offy, false, msc);
+            }
+            offx += xpOffsetsX[xpOffsetsX.length - 1] + 12;
+
+            if(state.player.xp > nextLevelXP(state.player.level))
+            {
+                drawFrame(ctx, stripIcons, 56, offx, worldR.h - 12);
+            }
         }
+        
     }
 
     { // levelup button
@@ -3478,19 +3566,21 @@ function updatePlaying(ctx, dt)
     }
 
     // book icon
-    let bookSine = (Math.sin(timeElapsed*5)+1)*0.5 * 5 * (nomiconWasEverRead ? 0 : 1);
+    if (state.status != GameStatus.Dead || !isMobile()) {    
+        let bookSine = (Math.sin(timeElapsed*5)+1)*0.5 * 5 * (nomiconWasEverRead ? 0 : 1);
     
-    ctx.save();
-    ctx.translate(Math.floor(nomiconR.centerx()), Math.floor(nomiconR.centery() + 3));
-    ctx.scale(1,1);
-    drawFrame(ctx, stripIconsBig, 1, 0, 0);
-    ctx.restore();
-
-    ctx.save();
-    ctx.translate(Math.floor(nomiconR.centerx()), Math.floor(nomiconR.centery() - bookSine));
-    ctx.scale(1,1);
-    drawFrame(ctx, stripIconsBig, 0, 0, 0);
-    ctx.restore();
+        ctx.save();
+        ctx.translate(Math.floor(nomiconR.centerx()), Math.floor(nomiconR.centery() + 3));
+        ctx.scale(1,1);
+        drawFrame(ctx, stripIconsBig, 1, 0, 0);
+        ctx.restore();
+        
+        ctx.save();
+        ctx.translate(Math.floor(nomiconR.centerx()), Math.floor(nomiconR.centery() - bookSine));
+        ctx.scale(1,1);
+        drawFrame(ctx, stripIconsBig, 0, 0, 0);
+        ctx.restore();
+    }
 
     if(state.status == GameStatus.Dead)
     {
@@ -3530,7 +3620,10 @@ function updatePlaying(ctx, dt)
     {
         state.levelupAnimation.update(dt);
         ctx.save();
-        ctx.translate(70, HUDRect.bottom() - 65);
+        if (isMobile())
+            ctx.translate(HUDRect.x + 40, HUDRect.bottom() - 65);
+        else
+            ctx.translate(70, HUDRect.bottom() - 65);
         ctx.scale(0.4, 0.4);
         drawFrame(ctx, stripLevelup, state.levelupAnimation.frame(), 0, 0);
         ctx.restore();
@@ -3541,8 +3634,44 @@ function updatePlaying(ctx, dt)
         state.crownAnimation.update(dt);
     }
     
+
+    // menu rendering
+    if(state.hoverMenu.isActive())
+    {
+        let menu = state.hoverMenu;
+
+        // render a frame over the selected actor
+        // @ts-ignore
+        let r = getRectForTile(state.hoverMenu.actor.tx, state.hoverMenu.actor.ty);
+        drawFrame(ctx, stripButtons, 40, r.centerx(), r.centery());
+
+        for(let i = 0; i < hoverRects.length; i++)
+        {
+            let r = hoverRects[i];
+            drawFrame(ctx, stripIconsBig, 2, r.centerx(), r.centery());
+            let offy = state.lastHoveredHoverButtonIndex == i ? 0 : 0;
+            drawMarker(ctx, hoverMarkers[i], r.centerx(), r.centery()+offy);
+        }
+    }
+    else
+    if(state.timeElapsedPushingButton > 0 && state.lastPushedButtonIndex >= 0)
+    {
+        let a = state.actors[state.lastPushedButtonIndex];
+        let r = getRectForTile(a.tx, a.ty);
+        // drawFrame(ctx, stripButtons, 40, r.centerx(), r.centery());
+        let circleFrames = [41, 42];
+        let circleFrame = Math.floor((clamp01(state.timeElapsedPushingButton/TIME_TO_HOVER_MENU) * 4) % 2);
+        if(state.timeElapsedPushingButton > 0.12)
+        {
+            drawFrame(ctx, stripButtons, circleFrames[circleFrame], r.centerx(), r.centery());
+        }
+    }
+    
+
+
     ctx.restore();
 
+    
     if(resetGame)
     {
         newGame();
