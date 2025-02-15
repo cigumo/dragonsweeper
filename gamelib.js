@@ -6,8 +6,6 @@ class WindowMode
 {
     static FitScreen = "fit_screen";
     static RealPixels = "real_pixels";
-    static ScrollHorizontal = "scroll_horizontal";
-    static ScrollVertical = "scroll_vertical";
 }
 
 /** @type {HTMLCanvasElement} */
@@ -17,6 +15,7 @@ let ZOOMY = 1;
 let WORLDW = 600;
 let WORLDH = 600;
 let backBuffer;
+let upscaledBackBuffer;
 let smoothing = false;
 let playerInteracted = false;
 let allSounds = [];
@@ -31,18 +30,6 @@ let mousePressed = false;
 let mouseJustPressed = false;
 let mousePressedRight = false;
 let mouseJustPressedRight = false;
-let mouseDragging = false;
-let mouseDragLastX = 0;
-let mouseDragLastY = 0;
-let mouseDragSpeedX = 0;
-let mouseDragSpeedY = 0;
-let mouseDragInertiaDampening = 3.0
-let mouseDragInertiaThreshold = 50 
-let mouseDragInertiaTime = 0
-let mouseDragInertiaMaxSpeed = WORLDW
-let ignoreNextLeftClick = false;
-let backBufferOffsetX = 0;
-let backBufferOffsetY = 0;
 let screenMode = WindowMode.FitScreen;
 let keysJustPressed = [];
 let keysPressed = [];
@@ -76,6 +63,18 @@ class StripFrame
         this.pivotx = 0;
         this.pivoty = 0;
     }
+}
+
+function loadSoundStreamed(path)
+{
+    let ret = new Audio(path);
+    ret.preload = "none";
+    // ret.load();
+    ret.onloadeddata = function()
+    {
+        allSounds.push(ret);
+    };
+    return ret;    
 }
 
 function loadSound(path)
@@ -213,8 +212,7 @@ function loadFont(imagePath, cellw, cellh, pivotx, pivoty, charMap, hasCapitaliz
 
 function fitCanvas()
 {
-    screenMode = isMobile() ? WindowMode.ScrollHorizontal : WindowMode.FitScreen;
-
+    screenMode = isMobile() ? WindowMode.FitScreen : WindowMode.FitScreen;
     let windowW = window.innerWidth;
     let windowH = window.innerHeight;
     let targetW = windowW;
@@ -229,7 +227,7 @@ function fitCanvas()
         }
         else
         {
-            targetH = windowH * 0.9;
+            targetH = windowH * 0.975;
             targetW = targetH * widthOverHeight;    
         }
         smoothing = true;
@@ -240,12 +238,6 @@ function fitCanvas()
         smoothing = false;
         targetW = backBuffer.width * ZOOMX;// / window.devicePixelRatio;
         targetH = backBuffer.height * ZOOMY;// / window.devicePixelRatio;
-    }
-    else if (screenMode == WindowMode.ScrollHorizontal)
-    {
-        smoothing = true;
-        targetH = windowH * 1
-        targetW = targetH * WORLDW/WORLDH
     }
     canvas.width = targetW;
     canvas.height = targetH;
@@ -260,16 +252,28 @@ function fitCanvas()
 
 function onLoadPage()
 {
+    document.addEventListener("focus",
+        (event) => 
+        {
+            shiftIsPressed = false;
+        },
+        true,
+      );
+
+      document.addEventListener(
+        "blur",
+        (event) => {
+            shiftIsPressed = false;
+        },
+        true,
+      );
+
     document.addEventListener("touchstart", 
         function (evt)
         {
-            console.log("touchstart")
             evt.preventDefault();
-
-            //activatePlayerInteraction();
-            
             mousePressed = true;
-            mouseDragging = false;
+            mouseJustPressed = true;
             var rect = canvas.getBoundingClientRect();
             for(var i = 0; i < evt.touches.length; i++)
             {
@@ -284,11 +288,7 @@ function onLoadPage()
         function (evt)
         {
             evt.preventDefault();
-            mouseDragging = true;
-            mouseJustDragged = true
             var rect = canvas.getBoundingClientRect();
-            mouseDragLastX = mouseScreenX;
-            mouseDragLastY = mouseScreenY;
             for(var i = 0; i < evt.touches.length; i++)
             {
                 let touch = evt.touches[i];
@@ -301,43 +301,21 @@ function onLoadPage()
     document.addEventListener("touchend",
         function (evt)
         {
-            console.log("touchend:  dragging:" + mouseDragging)            
             evt.preventDefault();
-            activatePlayerInteraction();            
-            
-            if (!mouseDragging) {
-                mouseJustPressed = true;
-            }
+            activatePlayerInteraction();
             mousePressed = false;
-            mouseDragging = false;
-            
         },
         { passive: false });
 
 
     document.onmousemove = function (me) 
     {
-        if (isMobile())
-            return;
-
-        if (mouseDragging) {
-            mouseJustDragged = true
-            mouseDragLastX = mouseScreenX;
-            mouseDragLastY = mouseScreenY;
-        }            
         var rect = canvas.getBoundingClientRect();
         mouseScreenX = me.clientX - rect.x; 
         mouseScreenY = me.clientY - rect.y;
-        if (mouseJustDragged) {
-            console.log("mouse drag delta X:" + (mouseScreenX - mouseDragLastX))
-        }
-            
     };
 
-    document.onclick = function(me) {
-        console.log("onclick")
-        activatePlayerInteraction();
-    }
+    document.onclick = function(me) {activatePlayerInteraction();}
 
     document.addEventListener('contextmenu', (event) => 
     {
@@ -347,17 +325,11 @@ function onLoadPage()
 
     document.onmousedown = function (e) 
     {
-        if (isMobile())
-            return;
-        console.log("onmousedown")
-        
+        shiftIsPressed = e.shiftKey;
         if(e.button == 0)
         {
             mousePressed = true;
             mouseJustPressed = true;
-            if (shiftIsPressed) {
-                mouseDragging = true
-            }
         }
         else
         if (e.which && e.which === 3 || e.button === 2)
@@ -365,18 +337,12 @@ function onLoadPage()
             mousePressedRight = true;
             mouseJustPressedRight = true;
         }
-        //activatePlayerInteraction();
+        activatePlayerInteraction();
     };
 
     document.onmouseup = function (e) 
     {
         // console.log("mup button:"+me.button+" buttons:"+me.buttons + " target: "+me.target);
-        if (isMobile())
-            return;
-
-        console.log("onmouseup")
-        
-        mouseDragging = false
         if(e.button == 0)
         {
             mousePressed = false;
@@ -392,13 +358,13 @@ function onLoadPage()
     { 
         keysJustPressed.push(keyEvent.key);
         keysPressed.push(keyEvent.key);
-        if(keyEvent.shiftKey) shiftIsPressed = true;
+        shiftIsPressed = keyEvent.shiftKey;
     };
 
     document.onkeyup = function (keyEvent)
     {
         keysPressed = keysPressed.filter(k => k != keyEvent.key);
-        if(!keyEvent.shiftKey) shiftIsPressed = false;
+        shiftIsPressed = keyEvent.shiftKey;
     };
 
     // schedule stuff to load
@@ -411,11 +377,15 @@ function onLoadPage()
     backBuffer.width = WORLDW;
     backBuffer.height = WORLDH;
 
+    upscaledBackBuffer = document.createElement("canvas");
+    upscaledBackBuffer.width = backBuffer.width * 2;
+    upscaledBackBuffer.height = backBuffer.height * 2;
+
     canvas = document.createElement("canvas");
     fitCanvas();
     document.body.appendChild(canvas);
     window.onresize = fitCanvas;
-    
+
     window.requestAnimationFrame(onInternalUpdate);
 }
 
@@ -426,68 +396,9 @@ function onInternalUpdate(now)
     lastUpdateTime = Date.now();
     timeElapsed += dt;
 
-    // back buffer drag and inertia
-    if (isMobile()) {
-        let f = backBuffer.height / canvas.height
-        let wiw = window.innerWidth
-        let wih = window.innerHeight
-        let bbw = backBuffer.width
-        let bbh = backBuffer.height
-        let dragLimits = getBackBufferDragLimits()
-        let dragLimitsX = dragLimits[0]
-        let dragLimitsY = dragLimits[1]
-        let bbdx = 0
-        let bbdy = 0
-        let speedThreshold = window.innerWidth / mouseDragInertiaThreshold
-        
-        if (mouseDragging) {
-            let dx = f * (mouseScreenX - mouseDragLastX)
-            let dy = f * (mouseScreenY - mouseDragLastY)
-            mouseDragInertiaTime = lastUpdateTime
-            mouseDragSpeedX = dx/dt
-            mouseDragSpeedY = dy/dt
+    mousex = (mouseScreenX / canvas.width) * backBuffer.width;
+    mousey = (mouseScreenY / canvas.height) * backBuffer.height;
 
-            if (mouseJustDragged) {
-                if (screenMode == WindowMode.ScrollHorizontal) {
-                    bbdx = backBufferOffsetX + dx
-                } else if (screenMode == WindowMode.ScrollVertical) {
-                    bbdy = backBufferOffsetY + dy
-                }
-            }
-        } else if (mousePressed) {
-            mouseDragSpeedX = 0
-            mouseDragSpeedX = 0
-        } else if (Math.abs(mouseDragSpeedX) > speedThreshold || Math.abs(mouseDragSpeedY) > speedThreshold) {
-            // inertial movement
-            bbdx = backBufferOffsetX + mouseDragSpeedX * dt
-            bbdy = backBufferOffsetY + mouseDragSpeedY * dt
-            // stop if outside drag limits
-            if (bbdx < dragLimitsX[0] || bbdx > dragLimitsX[1]) {
-                mouseDragSpeedX = 0
-            }
-            if ( bbdx < dragLimitsX[0] || bbdx > dragLimitsX[1]) {
-                mouseDragSpeedY = 0
-            }
-            // decay speed
-            if (mouseDragSpeedX != 0 || mouseDragSpeedY != 0) {
-                let maxSpeed = mouseDragInertiaMaxSpeed
-                let speedFactor = (1 - dt*mouseDragInertiaDampening)
-                mouseDragSpeedX = clamp(0, maxSpeed, Math.abs(mouseDragSpeedX) * speedFactor) * Math.sign(mouseDragSpeedX)
-                mouseDragSpeedY = clamp(0, maxSpeed, Math.abs(mouseDragSpeedY) * speedFactor) * Math.sign(mouseDragSpeedY)
-            }
-            //console.log("mouseDragSpeedX:"+mouseDragSpeedX)
-        }
-        if (bbdx != 0 || bbdy != 0) {
-            // move backbuffer
-            backBufferOffsetX = clamp(dragLimitsX[0], dragLimitsX[1], bbdx)
-            backBufferOffsetY = clamp(dragLimitsY[0], dragLimitsY[1], bbdy)
-        }
-    }
-    
-    let mxy = screen2world(mouseScreenX,mouseScreenY)
-    mousex = mxy[0]
-    mousey = mxy[1]
-    
     if(pendingStuffToLoad > 0)
     {
         onUpdate(UpdatePhase.Loading, dt);
@@ -502,14 +413,26 @@ function onInternalUpdate(now)
         onUpdate(UpdatePhase.Updating, dt);
     }
 
+    // flip backbuffer
     let ctx = get2DContext(canvas);
     ctx.imageSmoothingEnabled = smoothing;
-    ctx.drawImage(backBuffer, 0, 0, backBuffer.width, backBuffer.height, 0, 0, canvas.width, canvas.height);
+    // upscale the backbuffer if stretching
+    if(screenMode == WindowMode.FitScreen)
+    {
+        let doubleCtx = upscaledBackBuffer.getContext("2d");
+        doubleCtx.imageSmoothingEnabled = false;
+        doubleCtx.drawImage(backBuffer, 0, 0, backBuffer.width, backBuffer.height, 0, 0, upscaledBackBuffer.width, upscaledBackBuffer.height);
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(upscaledBackBuffer, 0, 0, upscaledBackBuffer.width, upscaledBackBuffer.height, 0, 0, canvas.width, canvas.height);
+    }
+    else
+    {
+        ctx.drawImage(backBuffer, 0, 0, backBuffer.width, backBuffer.height, 0, 0, canvas.width, canvas.height);
+    }
 
     keysJustPressed = [];
     mouseJustPressed = false;
     mouseJustPressedRight = false;
-    mouseJustDragged = false;
     window.requestAnimationFrame(onInternalUpdate);
 }
 
@@ -619,20 +542,22 @@ class Rect
 }
 
 /** @param {CanvasRenderingContext2D} ctx*/
-function drawFrame(ctx, strip, frameIndex, x, y, flipX = false, scale = 1)
+function drawFrame(ctx, strip, frameIndex, x, y, flipX = false)
 {
+    console.assert(frameIndex < strip.frames.length, "invalid frame: "+frameIndex);
     let frame = strip.frames[frameIndex];
     ctx.save();
+    let finalx = Math.floor(x - frame.pivotx);
+    let finaly = Math.floor(y - frame.pivoty);
     if(flipX)
     {
-        ctx.translate(x + frame.pivotx, y - frame.pivoty);
-        ctx.scale(-scale, scale);
+        ctx.translate(finalx, finaly);
+        ctx.scale(-1, 1);
         ctx.drawImage(frame.img, 0, 0);
     }
     else
     {
-        ctx.translate(x - frame.pivotx, y - frame.pivoty);
-        ctx.scale(scale, scale);
+        ctx.translate(finalx, finaly);
         ctx.drawImage(frame.img, 0, 0);
     }
     ctx.restore();
@@ -808,7 +733,7 @@ class BitmapFont
         }
     }
 
-    drawLine(ctx, text, x, y, centering = 0, clip = null, scale=1)
+    drawLine(ctx, text, x, y, centering = 0, clip = null)
     {
         let area = new Rect();
         area.w = 10000;
@@ -837,6 +762,8 @@ class BitmapFont
         {
             starty = y + this.lineh;
         }
+        startx = Math.floor(startx);
+        starty = Math.floor(starty);
         return this.processLine(ctx, text, startx, starty, area.w, true, clip);
     }
 
@@ -1045,13 +972,6 @@ function clamp01(v)
     return Math.max(0, Math.min(1, v));
 }
 
-function clamp(min,max,v)
-{
-    let mmin = Math.min(min,max)
-    let mmax = Math.max(min,max)
-    return Math.max(mmin, Math.min(mmax,v))
-}
-
 function randomColor()
 {
     return Math.floor(Math.random() * 16777215).toString(16);
@@ -1067,7 +987,7 @@ function activatePlayerInteraction()
 {
     if(!playerInteracted)
     {
-        console.log("activating player interaction");
+        // console.log("activating player interaction");
         playerInteracted = true;
         // play one sound to trigger the sound loadings
         if(allSounds.length > 0)
@@ -1119,7 +1039,7 @@ function multiplyImageColor(image, colorMultiplier)
 function isMobile()
 {
     let isMobile = ('ontouchstart' in document.documentElement && /mobi/i.test(navigator.userAgent));
-    //isMobile = true;
+    // isMobile = true;
     return isMobile;
 }
 
@@ -1147,28 +1067,4 @@ function showLoadingC64(ctx, rect)
         offy += bandH;
     }
     ctx.restore();
-}
-
-function screen2world(x,y)
-{
-    let f = (backBuffer.height / canvas.height)
-    return [(f*x - backBufferOffsetX),(f*y - backBufferOffsetY)]
-}
-
-function scale2world(w,h)
-{
-    let f = (backBuffer.height / canvas.height)
-    return [f*w, f*h]
-}
-
-function getBackBufferDragLimits()
-{
-    let f = backBuffer.height / canvas.height
-    let wiw = window.innerWidth
-    let wih = window.innerHeight
-    let bbw = backBuffer.width
-    let bbh = backBuffer.height
-    let dragLimitsX = [-bbw+wiw*f ,0]
-    let dragLimitsY = [-bbh+wih*f ,0]
-    return [dragLimitsX,dragLimitsY]
 }
