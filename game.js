@@ -2,6 +2,7 @@
 // @ts-check
 "use_strict"
 
+let RELEASE = true;
 let debugOn = false;
 let debugLines = [];
 let fontDebug;
@@ -27,6 +28,7 @@ let runningMusicId = null;
 let musicToRun = null;
 
 let imgJuliDragon;
+let imgJuliDragonAlternate;
 let stripHint;
 let stripHintLevelup;
 let stripButtons;
@@ -40,12 +42,16 @@ let stripHUD;
 let stripBook;
 let stripLevelupButtons;
 let stripFX;
+let stripBookFlap;
+let stripStamps;
+let stripStoryteller;
 /** @type {GameState} */
 let state;
+let collectedStamps = [];
 
 let sndEvents = {};
 
-const version = "v1.1.4";
+const version = "v1.1.18";
 const TIME_TO_HOVER_MENU = 0.33;
 const BOOK_MOVEMENT_DURATION = 1;
 const MAX_HP = 19;
@@ -71,6 +77,13 @@ const HERO_LEVELING = [32, 33, 34, 35, 36, 37];
 const HERO_STABBING = [50];
 const HERO_CELEBRATING = [70, 71];
 const ALL_MARKERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+const STAMP_LOVERS = "stamp_lovers";
+const STAMP_CLEAR = "stamp_clear";
+const STAMP_EGG = "stamp_egg";
+const STAMP_PACIFIST = "stamp_pacifist";
+const STAMP_SPEC_IDS    = [STAMP_LOVERS, STAMP_CLEAR, STAMP_EGG, STAMP_PACIFIST];
+const STAMP_SPEC_FRAME  = [5, 8, 1, 2];
+const STAMP_DESC        = [["lovers", "survive"], ["clear","board"], ["future","generation"], ["rat","pacifist"]]
 
 
 let LEVELUP_FRAMES = [];
@@ -186,7 +199,6 @@ class GameStatus
     static None = "none";
     static Playing = "playing";
     static Dead = "dead";
-    static DragonDefeated = "dragon_defeated";
     static WinScreen = "win_screen";
     static GeneratingDungeon = "generating";
 }
@@ -223,6 +235,9 @@ class ActorId
     static Gnome = "gnome";
     static Bat = "bat";
     static Guard = "guardian";
+    static Crown = "crown";
+    static Fidel = "fidel";
+    static DragonEgg = "dragon_egg";
 }
 
 class Actor
@@ -252,25 +267,32 @@ class Actor
         this.minotaurChestLocation = [-1, -1];
     }
 
+    copyFrom(other)
+    {
+        this.id = other.id;
+        this.strip = other.strip;
+        this.stripFrame = other.stripFrame;
+        this.deadStripFrame = other.deadStripFrame;
+        this.revealed = other.revealed;
+        this.monsterLevel = other.monsterLevel;
+        this.xp = other.xp;
+        this.mimicMimicking = other.mimicMimicking;
+        this.defeated = other.defeated;
+        this.mark = other.mark;
+        this.trapDisarmed = other.trapDisarmed;
+        this.contains = other.contains;
+        this.wallHP = other.wallHP;
+        this.wallMaxHP = other.wallMaxHP;
+        this.isMonster = other.isMonster;
+        this.name = other.name;
+        this.minotaurChestLocation[0] = other.minotaurChestLocation[0];
+        this.minotaurChestLocation[1] = other.minotaurChestLocation[1];
+    }
+
     reset()
     {
-        this.id = ActorId.None;
-        this.strip = null;
-        this.stripFrame = 0;
-        this.deadStripFrame = 0;
-        this.revealed = false;
-        this.monsterLevel = 0;
-        this.xp = 0;
-        this.mimicMimicking = false; // TODO: necessary?
-        this.defeated = false;
-        this.mark = 0;
-        this.trapDisarmed = false;
-        this.contains = null;
-        this.wallHP = 0;
-        this.wallMaxHP = 0;
-        this.isMonster = false;
-        this.name = "none";
-        this.minotaurChestLocation = [-1, -1];
+        let temp = new Actor();
+        this.copyFrom(temp);
     }
 }
 
@@ -327,8 +349,18 @@ class GameState
         this.waitForAFrameBeforeGeneration = false;
         this.waitForFramesAfterGeneration = 0;
         this.minesDisarmed = false;
-        this.clearedBoard = false;
         this.wallLocations = [];
+        this.chestsLocations = [];
+        this.dragonDefeated = false;
+        this.crownAnimation = new FrameAnimation();
+        this.startTime = 0;
+        this.endTime = 0;
+        // this.clearedBoard = false;
+        // this.fidelSurvived = false;
+        this.bookPage = 0;
+        /** @type {string[]} */
+        this.stampsCollectedThisRun = [];
+        this.killedRats = 0;
     }
 }
 
@@ -344,7 +376,9 @@ function stripXYToFrame24(x, y)
 
 function nextLevelXP(level)
 {
-    let table = [0, 5, 6, 9, 9, 9, 12, 12, 15, 15, 15, 18, 18, 21, 21, 24, 24, 24, 24, 24];
+    //              1  2  3  4  5   6   7   8   9  10  11  12  13  14  15 (level)
+    //              5     6     7       8       9      10      11      12 (hp)
+    let table = [0, 4, 5, 7, 9, 9, 10, 12, 12, 12, 15, 18, 21, 21, 25];
     let index = Math.min(level, table.length - 1);
     return table[index];
 }
@@ -383,6 +417,15 @@ function loadSettings()
     {
         musicOn = musicSetting == "on";
     }
+
+    collectedStamps = [];
+    for(let stampSpec of STAMP_SPEC_IDS)
+    {
+        if(localStorage.getItem(stampSpec) != null)
+        {
+            collectedStamps.push(stampSpec);
+        }
+    }
 }
 
 function saveSettings()
@@ -390,13 +433,24 @@ function saveSettings()
     localStorage.setItem("sound", soundOn ? "on" : "off");
     localStorage.setItem("music", musicOn ? "on" : "off");
     localStorage.setItem("nomicon", nomiconWasEverRead ? "yes" : "no");
+    for(let stamp of collectedStamps)
+    {
+        localStorage.setItem(stamp, "yes");
+    }
 }
 
 function newGame()
 {
     state = new GameState();
+    state.player.level = 1;
+    state.player.maxHP = 6;
+    state.player.hp = state.player.maxHP;
+
     state.status = GameStatus.GeneratingDungeon;
     state.waitForAFrameBeforeGeneration = true;
+
+    // state.crownAnimation.loop([10, 11, 12, 13 ,14 ,15 ,16, 17], 9);
+    state.crownAnimation.loop([4, 5, 6], 9);
 }
 
 function generateDungeon()
@@ -404,16 +458,9 @@ function generateDungeon()
     state.gridW = 13;
     state.gridH = 10;
 
-    state.player.level = 1;
-    state.player.maxHP = 5 + 1 + 1;
-    state.player.hp = state.player.maxHP;
-
     // generator
-    /** @type {number[]} */
-    let available = [];
     /** @type {RandomGeneratorLayer} */
     let currentLayer = new RandomGeneratorLayer();
-    // let corners = [[0,0], [state.gridW - 1, 0], [0, state.gridH - 1], [state.gridW-1, state.gridH-1]];
     // buttons and all available actors
     let buttonFrameBag = [4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19, 20, 21, 22, 23, 24];
     let currentButtonBag = [];
@@ -426,7 +473,6 @@ function generateDungeon()
             a.tx = x;
             a.ty = y;
             state.actors.push(a);
-            available.push(state.actors.length - 1);
 
             if(currentButtonBag.length == 0)
             {
@@ -442,13 +488,10 @@ function generateDungeon()
 
     // I need this for the happiness algo to not place stuff
     // always in the same place
-    shuffle(state.actors);
+    // shuffle(state.actors);
 
     beginLayer();
     add(1, makeDragon);
-    endLayer();
-
-    beginLayer();
     add(1, makeWizard);
     endLayer();
 
@@ -457,28 +500,19 @@ function generateDungeon()
     endLayer();
 
     beginLayer();
-    add(1, makeLich);
-    endLayer();
-
-    beginLayer();
-    add(1, makeRatKing);
-    add(2, makeRat1).forEach(a => a.name = "rat_guard");
+    add(1, makeMineKing);
     endLayer();
 
     beginLayer();
     add( 1, makeGiant9).forEach(a => a.name = "romeo");
     add( 1, makeGiant9).forEach(a => a.name = "juliet");
-    // add( 6, makeWall).forEach(a => a.contains = makeTreasure3);
-    add( 6, makeWall).forEach(a => a.contains = makeTreasure1);
+    // add(2, makeRat1).forEach(a => a.name = "rat_guard");
     endLayer();
 
     beginLayer();
-    add(12, makeRat1);
-    add(11, makeBat2);
-    add(10, makeSkeleton3);
-    add( 6, makeSlime5);
+    add(1, makeRatKing);
+    add( 6, makeWall).forEach(a => a.contains = makeTreasure1);
     add( 5, makeMinotaur6);
-    // add( 3, makeSnake7);
     add( 1, makeGuard7).forEach(a => a.name = "guard1");
     add( 1, makeGuard7).forEach(a => a.name = "guard2");
     add( 1, makeGuard7).forEach(a => a.name = "guard3");
@@ -490,14 +524,11 @@ function generateDungeon()
     add( 2, makeGargoyle4).forEach(a => a.name = "gargoyle4");
 
     add( 2, makeGazer);
-    add( 1, makeMimic);
 
-    add( 7, makeMine);
-    add( 1, makeMine).forEach(a => a.name = "mine_with_orb");
+    add( 9, makeMine);
+    // add( 1, makeMine).forEach(a => a.name = "mine_with_orb");
 
     // add( 3, makeWall).forEach(a => a.contains = makeTreasure1);
-
-    add( 1, makeSpellOrb);
     add( 5, makeMedikit);
     add( 3, makeChest);
     // add( 1, makeChest).forEach(a => a.contains = makeSpellOrb);
@@ -505,15 +536,24 @@ function generateDungeon()
     // add(1, makeOrb).forEach(a => a.revealed = true);
     add(1, makeOrb).forEach(a => {a.revealed = true; a.name = "orb_with_healing";});
     // add(2, makeMedikit);//.forEach(a => a.revealed = true);
-    add(1, makeGnome);
+    // add(1, makeFidel);
+    add(1, makeDragonEgg);
+    
     endLayer();
 
-    // beginLayer();
-    // add( 8, makeTreasure1);
-    // endLayer();
+    beginLayer();
+    add(13, makeRat1);
+    add(12, makeBat2);
+    add(10, makeSkeleton3);
+    add( 8, makeSlime5);
+    add( 1, makeMimic);
+    add(1, makeGnome);
+    add( 1, makeSpellOrb);
+    endLayer();
 
     // post generation initialization
-    let wallHPs = [1, 2, 3, 3, 4, 5];
+    // let wallHPs = [1, 2, 3, 3, 4, 5];
+    let wallHPs = [3, 3, 3, 3, 3, 3];
     let wallHPCounter = 0;
     for(let a of state.actors)
     {
@@ -567,10 +607,18 @@ function generateDungeon()
             wallHPCounter = (wallHPCounter + 1) % wallHPs.length;
             // mark this location as a wall
             state.wallLocations.push([a.tx, a.ty]);
-        }            
+        }
+        else if(a.id == ActorId.Chest)
+        {
+            state.chestsLocations.push([a.tx, a.ty]);
+        }
     }
 
     computeStats();
+    if(!RELEASE)
+    {
+        checkLevel();
+    }
 
     function beginLayer()
     {
@@ -579,25 +627,22 @@ function generateDungeon()
 
     function endLayer()
     {
-        console.assert(available.length >= currentLayer.actors.length);
-        for(let i = 0; i < currentLayer.actors.length; i++)
+        let layerActors = [];
+        for(let layerActorToAdd of currentLayer.actors)
         {
-            let current = currentLayer.actors[i];
-            let freeIndex = available.pop();
-            if(freeIndex == undefined) continue; // bullshit javascript
-            let old = state.actors[freeIndex];
-            current.tx = old.tx;
-            current.ty = old.ty;
-            state.actors[freeIndex] = current;
+            let availableActor = state.actors.find(a => isEmpty(a));
+            if(availableActor == undefined) continue;
+            availableActor.copyFrom(layerActorToAdd);
+            layerActors.push(availableActor);            
         }
 
-        for(let k = 0; k < 1; k++)
+        let bestHappiness = happiness();
+        for(let k = 0; k < 4; k++)
         {
-            let bestHappiness = happiness();
-            for(let i = 0; i < state.actors.length; i++)
+            shuffle(state.actors);
+            for(let i = 0; i < layerActors.length; i++)
             {
-                let a = state.actors[i];
-                if(a.fixed) continue;
+                let a = layerActors[i];
                 let happiestReplacement = null;
                 for(let j = 0; j < state.actors.length; j++)
                 {
@@ -606,7 +651,7 @@ function generateDungeon()
                     swapPlaces(a, b);
                     let newHappiness = happiness();
                     swapPlaces(a, b);
-                    if(newHappiness > bestHappiness)
+                    if(newHappiness >= bestHappiness)
                     {
                         bestHappiness = newHappiness;
                         happiestReplacement = b;
@@ -620,7 +665,7 @@ function generateDungeon()
             }
         }
 
-        for(let a of currentLayer.actors)
+        for(let a of layerActors)
         {
             a.fixed = true;
         }
@@ -654,6 +699,40 @@ function generateDungeon()
         let ret = 0;
         for(let a of state.actors)
         {
+            if(a.id == ActorId.DragonEgg)
+            {
+                if(isCloseTo(a, ActorId.Dragon, 1.5))
+                {
+                    ret += 9000;
+                }
+            }
+            else
+            if(a.id == ActorId.Fidel)
+            {
+                if(isCorner(a.tx, a.ty))
+                {
+                    ret += 9000;
+                }
+                // if(!isCloseTo(a, ActorId.Chest, 1.5))
+                // {
+                //     ret += 9000;
+                // }
+            }
+            else
+            if(a.id == ActorId.Gnome)
+            {
+                if(isCloseTo(a, ActorId.Medikit, 1.5))
+                {
+                    ret += 10000;
+                }
+    
+                // let target = getGnomeFavoriteJumpTarget();
+                // if(target != null && target.tx == a.tx && target.ty == a.ty)
+                // {
+                //     ret += 5000;
+                // }
+            }
+            else
             if(a.id == ActorId.Rat)
             {
                 if(a.name == "rat_guard")
@@ -671,42 +750,27 @@ function generateDungeon()
             else
             if(a.id == ActorId.Guard)
             {
-                if(a.name == "guard1")
+                if(isGuardianInRightQuadrant(a))
                 {
-                    if(a.tx < 6 && a.ty < 4) ret += 1000;
+                    ret += 2500;
                 }
-                else if(a.name == "guard2")
-                {
-                    if(a.tx > 6 && a.ty < 4) ret += 1000;
-                }
-                else if(a.name == "guard3")
-                {
-                    if(a.tx > 6 && a.ty > 4) ret += 1000;
-                }
-                else if(a.name == "guard4")
-                {
-                    if(a.tx < 6 && a.ty > 4) ret += 1000;
-                }
-            }
-            else
-            if(a.id == ActorId.Snake)
-            {
-                // ret += -1000 * countNearMeWithSameId(a, 1.5);
             }
             else
             if(a.id == ActorId.Giant)
             {
-                if(a.name == "romeo" && a.tx > 5) ret -= 1000;
-                else if(a.name == "juliet" && a.tx < 7) ret -= 1000;
-
                 let centerx = Math.floor(state.gridW/2);
-                for(let b of state.actors)
+                let myLove = state.actors.find(b => b.id == ActorId.Giant && b != a);
+                if(myLove != undefined)
                 {
-                    if(b === a) continue;
-                    if(b.id != a.id) continue;
-                    if(b.ty != a.ty) continue;
-                    if(Math.abs(a.tx - centerx) != Math.abs(b.tx - centerx)) continue;
-                    ret += 5000;
+                    if(((a.name == "romeo" && a.tx <= 5) || (a.name == "juliet" && a.tx >= 7)))
+                    {
+                        ret += 1000;
+                    }
+
+                    if(myLove.ty == a.ty && Math.abs(a.tx - centerx) == Math.abs(myLove.tx - centerx))
+                    {
+                        ret += 10000;
+                    }
                 }
             }
             else
@@ -744,61 +808,31 @@ function generateDungeon()
             else
             if(a.id == ActorId.Minotaur)
             {
-                let chests = [];
+                let chests = 0;
+                let crowded = false;
                 for(let b of state.actors)
                 {
-                    if(a === b) continue;
-                    let dist = distance(a.tx, a.ty, b.tx, b.ty);
-                    if(dist < 2 && b.id == ActorId.Chest && b.tx != a.tx)
+                    if(b.id != ActorId.Chest) continue;
+                    if(b.tx == a.tx) continue;
+                    if(distance(a.tx, a.ty, b.tx, b.ty) >= 2) continue;
+                    
+                    chests++;
+
+                    if(state.actors.find(c => c.id == ActorId.Minotaur && c !== a && distance(c.tx, c.ty, b.tx, b.ty) < 2) != undefined)
                     {
-                        chests.push(b);
+                        crowded = true;
                     }
                 }
 
-                if(chests.length != 1)
+                if(chests == 1 && !crowded)
                 {
-                    ret -= 1000;
-                }
-                else
-                {
-                    let crowded = false;
-                    let chest = chests[0];
-                    for(let b of state.actors)
-                    {
-                        if(a === b) continue;
-                        let dist = distance(chest.tx, chest.ty, b.tx, b.ty);
-                        if(dist < 2 && b.id == ActorId.Minotaur)
-                        {
-                            crowded = true;
-                        }
-                    }
-
-                    if(crowded)
-                    {
-                        ret -= 2000;
-                    }
+                    ret += 10000;
                 }
             }
             else
             if(a.id == ActorId.Gargoyle)
             {
-                let foundTwin = false;
-                let neighborCount = 0;
-                for(let b of state.actors)
-                {
-                    if(a === b) continue;
-                    let dist = distance(a.tx, a.ty, b.tx, b.ty);
-                    if(dist <= 1 && b.id == ActorId.Gargoyle)
-                    {
-                        neighborCount += 1;
-                        if(b.name == a.name)
-                        {
-                            foundTwin = true;
-                        }
-                    }
-                }    
-
-                if(foundTwin)
+                if(isGargoyleInRightPlace(a))
                 {
                     ret += 1000;
                 }
@@ -815,7 +849,6 @@ function generateDungeon()
                 let wallsRevealed = 0;
                 let minesRevealed = 0;
                 let forbiddenObjects = 0;
-                // let revealedSpecialMine = false;
                 for(let b of state.actors)
                 {
                     if(a === b) continue;
@@ -829,6 +862,9 @@ function generateDungeon()
                             b.id == ActorId.Chest || 
                             b.id == ActorId.SpellMakeOrb || 
                             b.id == ActorId.RatKing ||
+                            b.id == ActorId.Mine ||
+                            b.id == ActorId.Fidel ||
+                            b.id == ActorId.DragonEgg ||
                             b.id == ActorId.BigSlime ||
                             b.id == ActorId.Mimic)
                         {
@@ -852,10 +888,9 @@ function generateDungeon()
                     }
                 }
 
-                ret += forbiddenObjects * -1000;
-                if(medikitsRevealed == 1) ret += 1000;
-                if(minesRevealed == 1) ret += 1000;
-                if(wallsRevealed > 0 && wallsRevealed <= 2) ret += 1000;
+                ret += forbiddenObjects * -2000;
+                if(wallsRevealed > 2) ret += (wallsRevealed - 2) * -2000;
+                if(medikitsRevealed == 1 && wallsRevealed > 0) ret += 2000;
             }
             else
             if(a.id == ActorId.Medikit)
@@ -863,9 +898,9 @@ function generateDungeon()
                 ret += -1000 * countNearMeWithSameId(a, 3.5);
             }
             else
-            if(a.id == ActorId.Gazer)
+            if(a.id == ActorId.Chest)
             {
-                // ret += -1000 * countNearMeWithSameId(a, 5);
+                ret += -1000 * countNearMeWithSameId(a, 3);
             }
             else
             if(a.id == ActorId.Wall)
@@ -914,37 +949,136 @@ function generateDungeon()
             }
             return count;
         }
+    }
+}
 
-        function isEdge(tx, ty)
+function isGuardianInRightQuadrant(a)
+{
+    if(a.name == "guard1")
+    {
+        if(a.tx < 6 && a.ty < 4) return true;
+    }
+    else if(a.name == "guard2")
+    {
+        if(a.tx > 6 && a.ty < 4) return true;
+    }
+    else if(a.name == "guard3")
+    {
+        if(a.tx > 6 && a.ty > 4) return true;
+    }
+    else if(a.name == "guard4")
+    {
+        if(a.tx < 6 && a.ty > 4) return true;
+    }
+    return false;
+}
+
+function isGargoyleInRightPlace(a)
+{
+    let foundTwin = false;
+    let neighborCount = 0;
+    for(let b of state.actors)
+    {
+        if(a === b) continue;
+        let dist = distance(a.tx, a.ty, b.tx, b.ty);
+        if(dist <= 1 && b.id == ActorId.Gargoyle)
         {
-            return tx == 0 || ty == 0 || tx == state.gridW - 1 || ty == state.gridH - 1;
+            neighborCount += 1;
+            if(b.name == a.name)
+            {
+                foundTwin = true;
+            }
         }
+    }    
+    return foundTwin;
+}
 
-        function isCloseTo(a, actorId, dist)
+function checkLevel()
+{
+    console.log("checking level...");
+    for(let a of state.actors)
+    {
+        if(a.id == ActorId.BigSlime)
         {
+            if(!isCloseTo(a, ActorId.Wizard, 1.5)) fail("misplaced slime");
+        }
+        else
+        if(a.id == ActorId.Gargoyle)
+        {
+            if(!isGargoyleInRightPlace(a)) fail("gargoyle misplaced");
+        }
+        else
+        if(a.id == ActorId.Guard)
+        {
+            if(!isGuardianInRightQuadrant(a)) fail("guardian misplaced");
+        }
+        else
+        if(a.id == ActorId.MineKing)
+        {
+            if(!isCorner(a.tx, a.ty)) fail("mine king not in corner");
+        }
+        else
+        if(a.id == ActorId.Giant)
+        {
+            let centerx = Math.floor(state.gridW/2);
+            let other = state.actors.find(b => b.id == ActorId.Giant && b.name != a.name);
+            if(other == undefined) continue;
+            if((a.name == "romeo" && a.tx > 5) || (a.name == "juliet" && a.tx < 7)) fail("misplaced giant");
+            if(other.ty != a.ty) fail("misplaced giant");
+            if(Math.abs(a.tx - centerx) != Math.abs(other.tx - centerx)) fail("misplaced giant");
+        }
+        else
+        if(a.id == ActorId.Minotaur)
+        {
+            let chests = 0;
             for(let b of state.actors)
             {
-                if(b === a) continue;
-                if(b.id != actorId) continue;
-                if(distance(a.tx, a.ty, b.tx, b.ty) > dist) continue;
-                return true;
+                if(b.id != ActorId.Chest) continue;
+                if(distance(a.tx, a.ty, b.tx, b.ty) >= 1.5) continue;
+                chests++;
             }
-            return false;
-        }
 
-        function isCorner(tx, ty)
-        {
-            return  (tx == 0 && ty == 0) || 
-                    (tx == 0 && ty == state.gridH - 1) ||
-                    (tx == state.gridW - 1 && ty == state.gridH - 1) ||
-                    (tx == state.gridW - 1 && ty == 0);
-        }
-
-        function isCloseToEdge(tx, ty)
-        {
-            return tx <= 1 || ty <= 1 || tx >= state.gridW - 2 || ty >= state.gridH - 2;
+            if(chests != 1)
+            {
+                console.error("minotaur wrong place");
+            }
         }
     }
+
+    function fail(msg)
+    {
+        console.error(msg);
+    }
+}
+
+function isEdge(tx, ty)
+{
+    return tx == 0 || ty == 0 || tx == state.gridW - 1 || ty == state.gridH - 1;
+}
+
+function isCloseTo(a, actorId, dist)
+{
+    for(let b of state.actors)
+    {
+        if(b === a) continue;
+        if(b.id != actorId) continue;
+        if(distance(a.tx, a.ty, b.tx, b.ty) >= dist) continue;
+        return true;
+    }
+    return false;
+}
+
+function isCorner(tx, ty)
+{
+    return  (tx == 0 && ty == 0) || 
+            (tx == 0 && ty == state.gridH - 1) ||
+            (tx == state.gridW - 1 && ty == state.gridH - 1) ||
+            (tx == state.gridW - 1 && ty == 0);
+}
+
+function isCloseToEdge(tx, ty)
+{
+    return tx <= 1 || ty <= 1 || tx >= state.gridW - 2 || ty >= state.gridH - 2;
 }
 
 function computeStats()
@@ -955,30 +1089,34 @@ function computeStats()
     {
         if(a.id == ActorId.Empty) state.stats.empties++;
         state.stats.totalXP += a.xp;
+        if(a.id == ActorId.Mine) continue;
         if(a.contains != null)
         {
             let placeholder = new Actor();
             a.contains(placeholder);
             state.stats.totalXP += placeholder.xp;
         }
-
         state.stats.totalMonsterHP += a.monsterLevel + a.wallHP;
     }
 
-    let maxhp = 6;
+    let maxhp = 5;
     state.stats.totalHPOnMaxLevel = maxhp;
     let level = 1;
-    while(maxhp < MAX_HP)
+    while(maxhp < MAX_HP - 1 - 3)
     {
         state.stats.xpRequiredToMax += nextLevelXP(level);
-        if(!isLevelHalfHeart(level)) maxhp += 1;
+        if(isLevelHalfHeart(level)) maxhp += 1;
         state.stats.totalHPOnMaxLevel += maxhp;
+        level++;
     }
+    state.stats.totalHPOnMaxLevel += 1;
     state.stats.excessXP = state.stats.totalXP - state.stats.xpRequiredToMax;
 }
 
 function drawLineOutlineCentered(ctx, text, x, y, centering)
 {
+    x = Math.floor(x);
+    y = Math.floor(y);
     fontUIGray.drawLine(ctx, text, x+1, y, centering);
     fontUIGray.drawLine(ctx, text, x, y+1, centering);
     fontUIGray.drawLine(ctx, text, x-1, y, centering);
@@ -1177,8 +1315,10 @@ function startFXGnomeJumping(tx, ty)
 {
     let rect = getRectForTile(tx, ty);
     // startFX([27, 28, 29, 30], rect.centerx(), rect.centery() - 5);
-    let startFrame = stripXYToFrame(130, 408);
-    startFX(stripMonsters, 1, [startFrame+1, startFrame+2, startFrame+3, startFrame+4, startFrame+5, startFrame+6, startFrame+7], rect.centerx(), rect.centery() - 5, 15);
+    let startFrame = stripXYToFrame(34, 408);
+    let frames = [];
+    for(let i = 0; i < 14; i++) frames.push(startFrame + i);
+    startFX(stripMonsters, 1, frames, rect.centerx(), rect.centery(), 12);
 }
 
 function startFXReveal(tx, ty)
@@ -1287,8 +1427,33 @@ function makeDragon(a)
     a.stripFrame = stripXYToFrame(200, 311);
     a.deadStripFrame = stripXYToFrame(230, 310);
     a.isMonster = true;
-    a.monsterLevel = 15;
-    // a.xp = a.monsterLevel;
+    a.monsterLevel = 13;
+    a.xp = a.monsterLevel;
+}
+
+/** @param {Actor} a*/
+function makeFidel(a)
+{
+    a.reset();
+    a.id = ActorId.Fidel;
+    a.strip = stripMonsters;
+    a.stripFrame = stripXYToFrame(0, 408);
+    a.isMonster = true;
+    a.monsterLevel = 0;
+    a.xp = a.monsterLevel;
+}
+
+/** @param {Actor} a*/
+function makeDragonEgg(a)
+{
+    a.reset();
+    a.id = ActorId.DragonEgg;
+    a.strip = stripMonsters;
+    a.stripFrame = stripXYToFrame(0, 250);
+    a.deadStripFrame = a.stripFrame + 1;
+    a.isMonster = true;
+    a.monsterLevel = 0;
+    a.xp = 3;
 }
 
 /** @param {Actor} a*/
@@ -1307,6 +1472,15 @@ function makeSpellRevealRats(a)
     a.id = ActorId.SpellRevealRats;
     a.strip = stripIcons;
     a.stripFrame = 29;
+}
+
+/** @param {Actor} a*/
+function makeCrown(a)
+{
+    a.reset();
+    a.id = ActorId.Crown;
+    a.strip = stripIcons;
+    a.stripFrame = 142;//stripXYToFrame(40, 230);
 }
 
 /** @param {Actor} a*/
@@ -1432,15 +1606,15 @@ function makeSnake7(a)
 }
 
 /** @param {Actor} a*/
-function makeLich(a)
+function makeMineKing(a)
 {
     a.reset();
     a.id = ActorId.MineKing;
     a.strip = stripMonsters;
-    // a.stripFrame = stripXYToFrame(250, 135);
-    a.stripFrame = stripXYToFrame(150+16, 486);
+    a.stripFrame = stripXYToFrame(250, 135);
+    // a.stripFrame = stripXYToFrame(150+16, 486); // bombucha
     a.isMonster = true;
-    a.monsterLevel = 12;
+    a.monsterLevel = 10;
     a.xp = a.monsterLevel;
     return a;
 }
@@ -1549,10 +1723,10 @@ function makeGnome(a)
     a.reset();
     a.id = ActorId.Gnome;
     a.strip = stripMonsters;
-    a.stripFrame = stripXYToFrame(135, 408);
+    a.stripFrame = stripXYToFrame(40, 408);
     a.isMonster = true;
     a.monsterLevel = 0;
-    a.xp = 10;
+    a.xp = 9;
 }
 
 
@@ -1636,7 +1810,7 @@ function makeMimic(a)
     a.strip = stripMonsters;
     a.stripFrame = stripXYToFrame(70, 360);
     a.isMonster = true;
-    a.monsterLevel = 10;
+    a.monsterLevel = 11;
     a.xp = a.monsterLevel;
     a.mimicMimicking = true;
 }
@@ -1678,6 +1852,281 @@ function getAttackNumber(tx, ty)
     return ret;
 }
 
+function updateBook(ctx, dt, worldR, HUDRect, clickedLeft)
+{
+    let bookR = new Rect();
+    bookR.w = stripBook.frames[0].rect.w;
+    bookR.h = stripBook.frames[0].rect.h;
+    bookR.x = (worldR.w - bookR.w) * 0.5;
+    bookR.y = (worldR.h - bookR.h - HUDRect.h) * 0.5;
+    let bookLeft = new Rect();
+    bookLeft.h = bookR.h;
+    bookLeft.w = bookR.w * 0.5;
+    bookLeft.x = bookR.x;
+    bookLeft.y = bookR.y;
+    let bookRight = new Rect();
+    bookRight.h = bookR.h;
+    bookRight.w = bookR.w * 0.5;
+    bookRight.x = bookR.right() - bookRight.w;
+    bookRight.y = bookR.y;
+    let flapL = new Rect();
+    flapL.w = 24;
+    flapL.h = 24;
+    flapL.x = bookLeft.x;
+    flapL.y = bookR.bottom() - flapL.h;
+    let flapR = new Rect();
+    flapR.copyFrom(flapL);
+    flapR.x = bookR.right() - flapR.w;
+
+    drawFrame(ctx, stripBook, 0, bookR.centerx(), bookR.centery());
+
+    if(state.bookPage == 0)
+    {
+        let top = 30;
+        fontBook.drawLine(ctx, "Monsternomicon", bookLeft.centerx(), top, FONT_CENTER);
+
+        let lines = [];
+        lines.push("* jorge must defeat dragon");
+        lines.push("* safe to lose all hearts");
+        // lines.push("* observe patterns when dead");
+        lines.push("* touch jorge to level up");
+        // lines.push("* guessing means death");
+        // lines.push("* walls can be taken down");
+        // lines.push("crowned monsters reveal minions");
+        // lines.push("* press \"S\" to toggle sound");
+        if(supportsRightClick()) lines.push("* shift or right click to mark");
+        else lines.push("* hold down button to mark");
+        // lines.push("* fear the mimic");
+        lines.push("* numbers are sum of");
+        lines.push("  monster power");
+
+        drawFrame(ctx, stripHint, 0, bookLeft.centerx(), bookLeft.bottom() - 105 - 15);
+        // drawFrame(ctx, stripHintLevelup, 0, bookLeft.x + 35, bookLeft.bottom() - 40 - 15);
+        // fontUIBook.drawLine(ctx, "touch jorge to level up", 55, bookRight.bottom() - 35 - 15);
+
+        fontBook.drawLine(ctx, "observe monster", bookLeft.centerx(), bookLeft.bottom() - 50, FONT_CENTER);
+        fontBook.drawLine(ctx, "patterns when dead", bookLeft.centerx(), bookLeft.bottom() - 40, FONT_CENTER);
+
+        // fontBook.drawLine(ctx, "fear the mimic", bookRight.centerx(), bookRight.bottom() - 35, FONT_CENTER);
+
+        let soundR = new Rect();
+        soundR.w = 16;
+        soundR.h = 16;
+        soundR.x = bookLeft.x + 20;
+        soundR.y = bookLeft.bottom() - 25;
+        if(clickedLeft && soundR.contains(mousex, mousey))
+        {
+            soundOn = !soundOn;
+            if(soundOn)
+            {
+                play("spell");
+            }
+        }
+        drawFrame(ctx, stripIcons, soundOn ? 58 : 57, soundR.centerx(), soundR.centery());
+
+        let musicR = new Rect();
+        musicR.w = 16;
+        musicR.h = 16;
+        musicR.x = soundR.right() + 10;
+        musicR.y = bookLeft.bottom() - 25;
+        if(clickedLeft && musicR.contains(mousex, mousey))
+        {
+            musicOn = !musicOn;
+        }
+        drawFrame(ctx, stripIcons, musicOn ? 151 : 150, musicR.centerx(), musicR.centery());
+
+        let offy = 0;
+        for(let line of lines)
+        {
+            fontUIBook.drawLine(ctx, line, 12, 20 + offy + top);
+            offy += 15;    
+        }
+
+        let bookRightBody = new Rect();
+        bookRightBody.copyFrom(bookRight);
+        bookRightBody.h = bookRight.w  - 20;
+        bookRightBody.y = 40 + 10;
+        bookRightBody.w *= 0.85;
+        bookRightBody.x += 20;
+        // fontUIBook.drawLine(ctx, "fear the mimic", bookRightBody.centerx(), bookRightBody.centery(), FONT_CENTER);
+
+        // monster list
+        let monsterCountTop = bookRightBody.y - 5;
+        let showCountY = monsterCountTop;
+        let showCountX = bookRightBody.x + 27;
+        let showLineCounter = 0;
+        showCount(makeRat1);
+        showCount(makeBat2);
+        showCount(makeSkeleton3);
+        showCount(makeGargoyle4);
+        // showCount(makeEye5);
+        showCount(makeSlime5);
+        showCount(makeMinotaur6);
+        // showCount(makeSnake7);
+        showCount(makeGuard7);
+        showCount(makeBigSlime8);
+        showCount(makeGiant9);
+        // showCount(makeMinion9);
+        // showCount(makeAngrySnake);
+        // showCount(makeDeath9);
+        showCount(makeMineKing); 
+
+        // showCount(makeLich); // 9
+        showCount(makeRatKing);
+        showCount(makeGazer);
+        // showCount(makeSlimeKing);
+        // showCount(makeLich);
+        
+        showCount(makeWizard);
+        showCount(makeMimic, stripXYToFrame(70, 375));
+        // showCount(makeDragon);
+        showCount(makeMine);
+        showCount(makeChest);
+        showCount(makeGnome);
+        showCount(makeMedikit);
+        showCount(makeSpellOrb);
+        showCount(makeSpellDisarm);
+        // showCount(makeFidel);
+        // showCount(makeSpellAngerMonsters);
+        // showCount(makeChest);
+
+        // fontBook.drawLine(ctx, "score: "+state.player.score, bookRight.centerx(), bookRight.bottom() - 20, FONT_CENTER);
+
+        fontUIBook.drawLine(ctx, version, bookLeft.right() - 50, bookRight.bottom() - 12);
+
+        drawFrame(ctx, stripBookFlap, 0, flapR.centerx() - 2, flapR.centery() - 2);
+        if(clickedLeft && flapR.contains(mousex, mousey))
+        {
+            state.bookPage = 1;
+            play("pageflip");
+        }
+
+        function showCount(makerFn, overrideFrame = -1)
+        {
+            let placeholder = new Actor();
+            makerFn(placeholder);
+
+            let level = placeholder.monsterLevel;
+
+            let count = 0;
+            for(let a of state.actors)
+            {
+                if(placeholder.id == a.id) count += 1;
+                else if(placeholder.id == ActorId.SpellMakeOrb && a.contains == makeSpellOrb) count += 1;
+                else if(placeholder.id == ActorId.Medikit && a.contains == makeMedikit) count += 1;
+                else if(placeholder.id == ActorId.SpellDisarm && a.id == ActorId.MineKing) count += 1;
+                else if(placeholder.id == ActorId.Medikit && a.id == ActorId.Giant) count += 1;
+                else if(placeholder.id == ActorId.SpellRevealRats && a.id == ActorId.RatKing) count += 1;
+                else if(placeholder.id == ActorId.SpellRevealSlimes && a.id == ActorId.Wizard) count += 1;
+
+                // TODO: this should have been another type of actor
+                if(a.id == ActorId.Mine && placeholder.id == a.id && a.monsterLevel == 0)
+                {
+                    level = 0;
+                    overrideFrame = stripXYToFrame(168, 455);
+                }
+            }
+
+            // if(all.length > 0)
+            {
+                let frame = placeholder.stripFrame;
+                if(overrideFrame >= 0) frame = overrideFrame;
+                drawFrame(ctx, stripIconsBig, 3, showCountX, showCountY);
+                drawFrame(ctx, placeholder.strip, frame, showCountX, showCountY);
+
+                // if(placeholder.id == ActorId.MineKing)
+                // {
+                //     let lich = state.actors.find(a => a.id == ActorId.MineKing);
+                //     if(lich != undefined)
+                //     {
+                //         level = lich.monsterLevel;
+                //     }
+                // }
+
+                let str = "$"+count;
+                if(placeholder.monsterLevel >= 0) fontUIBook.drawLine(ctx, "P"+level, showCountX - 12, showCountY, FONT_VCENTER|FONT_RIGHT);
+                if(makerFn == makeGazer) str = "$?";
+                fontUIBook.drawLine(ctx, str, showCountX + 12, showCountY, FONT_VCENTER);
+                showCountY += 22;
+                showLineCounter += 1;
+                if(showLineCounter == 10)
+                {
+                    showCountX += 90;
+                    showCountY = monsterCountTop;
+                }
+            }
+        }
+    }
+    else if(state.bookPage == 1)
+    {
+        let top = bookRight.y + 10;
+        fontBook.drawLine(ctx, "** stamps **", bookLeft.centerx(), top + 30, FONT_CENTER);
+
+        let offy = top + 70;
+        let offx = bookLeft.x + 50;
+        for(let i = 0; i < STAMP_SPEC_IDS.length;i++)
+        {
+            let lines = STAMP_DESC[i];
+            let solved = hasStamp(STAMP_SPEC_IDS[i]);
+            drawFrame(ctx, stripStamps, STAMP_SPEC_FRAME[i] + (solved ? 0 : 9), offx, offy);
+            fontBook.drawLine(ctx, lines[0], offx + 22, offy - 2);
+            fontBook.drawLine(ctx, lines[1], offx + 22, offy + 10 - 2);
+            offy += stripStamps.frames[0].rect.h + 15;
+        }
+
+        { // credits
+            let lines = [];
+            lines.push("por Daniel Benmergui");
+            lines.push("y hernan rozenwasser");
+            lines.push("");
+            lines.push("participaron:");
+            lines.push("mercedes grazzini");
+            lines.push("julieta romero");
+            lines.push("daniela renton");
+            lines.push("");
+            lines.push("gracias:");
+            lines.push("mademoiselle ^lin");
+            lines.push("squirrel eiserloh");
+            lines.push("matt vandevander");
+            lines.push("antonio uribe, luka");
+            lines.push("jake birkett, marco, bryan");
+            lines.push("steve ridout")
+            lines.push("");
+            lines.push("");
+            lines.push("inspirado en mamono sweeper");
+            lines.push("");
+            lines.push("hecho en #");
+            let creditsy = top + 30;
+            let creditsx = bookRight.centerx();
+            for(let line of lines)
+            {
+                fontUIBook.drawLine(ctx, line, creditsx, creditsy, FONT_BOTTOM|FONT_CENTER);
+                creditsy += 7;
+            }
+        }
+
+        let storytellerR = new Rect();
+        storytellerR.w = stripStoryteller.frames[0].rect.w;
+        storytellerR.h = stripStoryteller.frames[0].rect.h;
+        storytellerR.x = bookRight.centerx() - storytellerR.w * 0.5;
+        storytellerR.y = bookRight.bottom() - storytellerR.h - 20;
+        drawFrame(ctx, stripStoryteller, 0, storytellerR.centerx(), storytellerR.centery());
+
+        fontUIBook.drawLine(ctx, "tambien hicimos", storytellerR.centerx(), storytellerR.y - 3, FONT_BOTTOM|FONT_CENTER);
+        if(clickedLeft && storytellerR.contains(mousex, mousey))
+        {
+            window.open("https://store.steampowered.com/app/1624540/Storyteller/", '_blank');
+        }
+    
+        drawFrame(ctx, stripBookFlap, 1, flapL.centerx() + 2, flapL.centery() - 2);
+        if(clickedLeft && flapL.contains(mousex, mousey))
+        {
+            state.bookPage = 0;
+            play("pageflip");
+        }
+    }
+}
+
 function updateGeneratingDungeon(ctx, dt)
 {
     if(state.waitForAFrameBeforeGeneration)
@@ -1690,6 +2139,7 @@ function updateGeneratingDungeon(ctx, dt)
         if(state.waitForFramesAfterGeneration == 0)
         {
             state.status = GameStatus.Playing;
+            state.startTime = Date.now();
         }
     }
     else
@@ -1752,12 +2202,10 @@ function updatePlaying(ctx, dt)
     {
         let hoverTileR = getRectForTile(state.hoverMenu.actor.tx, state.hoverMenu.actor.ty);
 
-        let offy = 0;
-        let offx = 0;
-        let basex = hoverTileR.right();
-        let basey = hoverTileR.y;
         let markerButtonTotalW = 4 * 24;
         let markerButtonTotalH = 4 * 24;
+        let basex = hoverTileR.right();
+        let basey = hoverTileR.y - markerButtonTotalH * 0.5 + 24 * 0.5;
         if(basex + markerButtonTotalW > worldR.right())
         {
             basex = hoverTileR.x - markerButtonTotalW;
@@ -1767,7 +2215,14 @@ function updatePlaying(ctx, dt)
         {
             basey = HUDRect.y - markerButtonTotalH;
         }
+        else
+        if(basey < 0)
+        {
+            basey = 0;
+        }
 
+        let offy = 0;
+        let offx = 0;
         let cols = 0;
         for(let i = 0; i < ALL_MARKERS.length; i++)
         {
@@ -1821,7 +2276,7 @@ function updatePlaying(ctx, dt)
             // play("hover_over_button");
         }
 
-        if(hoveringOverTileIndex >= 0 && clickedLeft)
+        if(hoveringOverTileIndex >= 0 && (clickedLeft || clickedRight))
         {
             let mark = hoverMarkers[hoveringOverTileIndex] == ALL_MARKERS[ALL_MARKERS.length - 1] ? 0 : hoverMarkers[hoveringOverTileIndex];
             if(mark == state.hoverMenu.actor?.mark) mark = 0;
@@ -1878,12 +2333,12 @@ function updatePlaying(ctx, dt)
             let a = activeActors[state.lastPushedButtonIndex];
             let r = actorRects[state.lastPushedButtonIndex];
 
-            if(a.mark == 13 && !state.minesDisarmed)
-            {
-                play("wrong");
-                state.lastPushedButtonIndex = -1;
-            }
-            else
+            // if(a.mark == 13 && !state.minesDisarmed)
+            // {
+            //     play("wrong");
+            //     state.lastPushedButtonIndex = -1;
+            // }
+            // else
             if(!mousePressed || supportsRightClick())
             {
                 if(r.contains(mousex, mousey)) clickedActorIndex = state.lastPushedButtonIndex;
@@ -1925,32 +2380,64 @@ function updatePlaying(ctx, dt)
         if(pushed.id == ActorId.Gnome)
         {
             // if I have room, move away!
-            let candidates = state.actors.filter(a => isEmpty(a) && !a.revealed);
-            if(candidates.length > 0)
+            let target = getGnomeFavoriteJumpTarget();
+            if(target != null)
             {
-                // move away!
-                shuffle(candidates);
-                makeGnome(candidates[0]);
+                let oldmark = target.mark;
+                makeGnome(target);
+                target.mark = oldmark;
                 makeEmpty(pushed);
                 play("gnome_jump", 1);
                 startFXGnomeJumping(pushed.tx, pushed.ty);
             }
         }
         
-        // if(pushed.id == ActorId.Puddle)
-        // {
-        //     if(pushed.revealed)
-        //     {
-        //         makeEmptyAndReveal(pushed);
-        //         // TODO: splash
-        //     }
-        // }
-        // else
-        // if(isEmpty(pushed))
-        // {
-        //     grantXP(1);
-        // }
-        // else
+        if(pushed.id == ActorId.Crown)
+        {
+            state.endTime = Date.now();
+            state.status = GameStatus.WinScreen;
+            
+            // stamps
+            let living = 0;
+            for(let a of state.actors)
+            {
+                if(isEmpty(a)) continue;
+                if(a.id == ActorId.Dragon || a.id == ActorId.Crown) continue;
+                living++;
+            }
+            if(living == 0)
+            {
+                state.stampsCollectedThisRun.push(STAMP_CLEAR);
+            }
+
+            if(state.actors.filter(a => a.id == ActorId.Giant && !a.defeated).length == 2)
+            {
+                state.stampsCollectedThisRun.push(STAMP_LOVERS);
+            }
+
+            if(state.actors.filter(a => a.id == ActorId.DragonEgg && !a.defeated).length == 1)
+            {
+                state.stampsCollectedThisRun.push(STAMP_EGG);
+            }
+
+            if(state.killedRats == 0)
+            {
+                state.stampsCollectedThisRun.push(STAMP_PACIFIST);
+            }
+
+            // merge stamps into global storage
+            for(let stampId of state.stampsCollectedThisRun)
+            {
+                if(!collectedStamps.includes(stampId))
+                {
+                    collectedStamps.push(stampId);
+                }
+            }
+            saveSettings();
+
+            play("win");
+        }
+        else
         if(pushed.id == ActorId.SpellRevealSlimes)
         {
             if(pushed.revealed)
@@ -2040,10 +2527,24 @@ function updatePlaying(ctx, dt)
             {
                 let candidates = state.actors.filter(a => !a.revealed);
                 shuffle(candidates);
-                if(candidates.length > 0)
+                
+                let pick = null;
+                for(let a of candidates)
                 {
-                    let a = candidates[0];
-                    let toReveal = activeActors.filter(b => !b.revealed && distance(a.tx, a.ty, b.tx, b.ty) < 1.5);
+                    if(state.actors.find(b => !b.revealed && b.id == ActorId.Mine && distance(a.tx, a.ty, b.tx, b.ty) < 1.5) != undefined)
+                    {
+                        pick = a;
+                    }
+                }
+
+                if(pick == null && candidates.length > 0)
+                {
+                    pick = candidates[0];
+                }
+
+                if(pick != null)
+                {
+                    let toReveal = state.actors.filter(b => !b.revealed && distance(pick.tx, pick.ty, b.tx, b.ty) < 1.5);
                     let index = 0;
                     while(index < toReveal.length)
                     {
@@ -2052,8 +2553,27 @@ function updatePlaying(ctx, dt)
                         if(pick != pushed) startFXReveal(pick.tx, pick.ty);
                     }    
                 }
+
                 makeEmptyAndReveal(pushed);
-                play(candidates.length > 0 ? "reveal" : "wrong");
+                play(pick != null ? "reveal" : "wrong");
+
+
+                // let candidates = state.actors.filter(a => !a.revealed);
+                // shuffle(candidates);
+                // if(candidates.length > 0)
+                // {
+                //     let a = candidates[0];
+                //     let toReveal = activeActors.filter(b => !b.revealed && distance(a.tx, a.ty, b.tx, b.ty) < 1.5);
+                //     let index = 0;
+                //     while(index < toReveal.length)
+                //     {
+                //         let pick = toReveal[index++];
+                //         pick.revealed = true;
+                //         if(pick != pushed) startFXReveal(pick.tx, pick.ty);
+                //     }    
+                // }
+                // makeEmptyAndReveal(pushed);
+                // play(candidates.length > 0 ? "reveal" : "wrong");
 
                 // let candidates = state.actors.filter(a => !a.revealed && isEmpty(a));
                 // shuffle(candidates);
@@ -2172,6 +2692,16 @@ function updatePlaying(ctx, dt)
                     startTempHeroAnim(HERO_STABBING);
                 }
     
+                if(pushed.id == ActorId.Rat)
+                {
+                    state.killedRats += 1;
+                }
+
+                if(pushed.id == ActorId.DragonEgg)
+                {
+                    play("crack_egg");
+                }
+                else
                 if(pushed.id == ActorId.Giant)
                 {
                     play("fight_special");
@@ -2179,8 +2709,11 @@ function updatePlaying(ctx, dt)
                 else
                 if(pushed.id == ActorId.Dragon)
                 {
-                    state.screenShakeTimer = 0.8;
-                    startFXDragonDead(pushed.tx, pushed.ty);
+                    if(pushed.defeated)
+                    {
+                        state.screenShakeTimer = 0.8;
+                        startFXDragonDead(pushed.tx, pushed.ty);
+                    }
                     play("dragon_dead");
                 }
                 else
@@ -2196,7 +2729,7 @@ function updatePlaying(ctx, dt)
                     play("disappointed");
                 }
                 else
-                if(pushed.id == ActorId.RatKing || pushed.id == ActorId.MineKing || pushed.id == ActorId.Wizard || pushed.id == ActorId.Gazer)
+                if(pushed.id == ActorId.RatKing || pushed.id == ActorId.MineKing || pushed.id == ActorId.Wizard || pushed.id == ActorId.Gazer || pushed.id == ActorId.Mimic)
                 {
                     startFXMonsterHit(pushedR);
                     play("fight_special");
@@ -2229,11 +2762,17 @@ function updatePlaying(ctx, dt)
                     startFXMonsterHit(pushedR);
                     play("fight");
                 }
+
             }
             else
             if(state.player.hp > 0 && pushed.revealed)
             {
                 grantXP(pushed.xp);
+                if(pushed.id == ActorId.Dragon)
+                {
+                    makeCrown(pushed);
+                }
+                else
                 if(pushed.id == ActorId.RatKing)
                 {
                     makeSpellRevealRats(pushed);
@@ -2300,6 +2839,11 @@ function updatePlaying(ctx, dt)
         if(a.id == ActorId.Minotaur)
         {
             let chest = state.actors.find(b => b.id == ActorId.Chest && b.tx == a.minotaurChestLocation[0] && b.ty == a.minotaurChestLocation[1]);
+            if(a.defeated)
+            {
+                // leave as it is
+            }
+            else
             if(chest == undefined)
             {
                 // a.stripFrame = stripXYToFrame(250, 360);
@@ -2403,24 +2947,28 @@ function updatePlaying(ctx, dt)
             musicToRun = null;
         }
         
-        if(keysJustPressed.includes('l'))
+        // cheats
+        if(!RELEASE)
         {
-            state.player.xp += nextLevelXP(state.player.level);
-            mustLevelup = true;
-        }
-
-        if(keysJustPressed.includes('k'))
-        {
-            for(let a of state.actors.filter(a => a.id == ActorId.Dragon || a.id == ActorId.MineKing))
+            if(keysJustPressed.includes('l'))
             {
-                a.monsterLevel = 1;
+                state.player.xp += nextLevelXP(state.player.level);
+                mustLevelup = true;
             }
-        }
 
-        if(keysJustPressed.includes('i'))
-        {
-            state.player.hp = 2;
-            state.status = GameStatus.Playing;
+            if(keysJustPressed.includes('k'))
+            {
+                for(let a of state.actors.filter(a => a.id == ActorId.Dragon || a.id == ActorId.MineKing))
+                {
+                    a.monsterLevel = 1;
+                }
+            }
+
+            if(keysJustPressed.includes('i'))
+            {
+                state.player.hp = 2;
+                state.status = GameStatus.Playing;
+            }
         }
     }        
 
@@ -2540,6 +3088,7 @@ function updatePlaying(ctx, dt)
                         " playerHP "+stats.totalHPOnMaxLevel);
         // debugLines.push("time elapsed pushing button: "+state.timeElapsedPushingButton);
         debugLines.push("level: "+state.player.level);
+        debugLines.push("shift: "+shiftIsPressed);
         // debugLines.push("hp anims:"+state.heartAnimations.length+" xp:"+state.xpAnimations.length);
         // for(let a of state.actors)
         // {
@@ -2569,23 +3118,13 @@ function updatePlaying(ctx, dt)
         else
         if(activeActors.find(a => a.id == ActorId.Dragon && !a.defeated) == undefined)
         {
-            state.status = GameStatus.DragonDefeated;
-            // is it a full clear?
-            let living = 0;
-            for(let a of state.actors)
-            {
-                if(isEmpty(a)) continue;
-                if(a.id == ActorId.Dragon) continue;
-                living++;
-            }
-            state.clearedBoard = living == 0;
+            state.dragonDefeated = true;
         }
     }
 
     let isRestartButtonEnabled = state.status == GameStatus.Dead;
-    let isWinButtonEnabled = state.status == GameStatus.DragonDefeated;
 
-    if(clickedLeft && levelupButtonR.contains(mousex, mousey) && !isLevelupButtonEnabled && !isRestartButtonEnabled && !isWinButtonEnabled)
+    if(clickedLeft && levelupButtonR.contains(mousex, mousey) && !isLevelupButtonEnabled && !isRestartButtonEnabled)
     {
         startTempHeroAnim(state.player.hp == 1 ? HERO_ITS_A_ME_NAKED : HERO_ITS_A_ME);
         play("jorge", 1);
@@ -2599,12 +3138,6 @@ function updatePlaying(ctx, dt)
         resetGame = true;
     }
     
-    if(clickedLeft && levelupButtonR.contains(mousex, mousey) && isWinButtonEnabled)
-    {
-        state.status = GameStatus.WinScreen;
-        play("win");
-    }
-
     // update book movement
     if(state.player.maxHP > 15 && (state.player.maxHP > 16 || isLevelHalfHeart(state.player.level)))
     {
@@ -2620,6 +3153,7 @@ function updatePlaying(ctx, dt)
     if(clickedLeft && nomiconR.contains(mousex, mousey))
     {
         state.showingMonsternomicon = !state.showingMonsternomicon;
+        if(!state.showingMonsternomicon) state.bookPage = 0;
         nomiconWasEverRead = true;
         saveSettings();
         play("book");
@@ -2655,11 +3189,6 @@ function updatePlaying(ctx, dt)
     let clickedHUD = clickedLeft && HUDRect.contains(mousex, mousey);
 
     // hero animations
-    if(state.status == GameStatus.DragonDefeated)
-    {
-        startHeroAnim(HERO_CELEBRATING);
-    }
-    else
     if(state.player.hp == 0)
     {
         startHeroAnim(HERO_DEAD);
@@ -2721,7 +3250,7 @@ function updatePlaying(ctx, dt)
         if(icon == 0 && a.xp > 0 && a.revealed && (!a.isMonster || a.defeated)) icon = 2;
         // do not lower tile with killer monster
         if(state.player.hp == 0 && state.lastTileClicked == a) icon = 0;
-        if(a.id == ActorId.Dragon && a.defeated) icon = 1;
+        // if(a.id == ActorId.Dragon && a.defeated) icon = 1;
         drawFrame(ctx, stripButtons, icon, centerx, centery);
         if(icon != 1 && icon != 2) drawFrame(ctx, stripButtons, state.buttonFrames[a.tx + a.ty*state.gridW], centerx, centery);
         if(a.revealed || debugOn || showEverything)
@@ -2729,6 +3258,7 @@ function updatePlaying(ctx, dt)
             if(isEmpty(a))
             {
                 if(state.wallLocations.find(w => w[0] == a.tx && w[1] == a.ty) != undefined) drawFrame(ctx, stripButtons, 43, centerx, centery);
+                if(state.chestsLocations.find(w => w[0] == a.tx && w[1] == a.ty) != undefined) drawFrame(ctx, stripButtons, 44, centerx, centery);
                 let neighbors = getAttackNumber(a.tx, a.ty);
                 
                 {
@@ -2749,11 +3279,16 @@ function updatePlaying(ctx, dt)
             if(a.isMonster)
             {
                 let monsterY = centery - 5;
-                if(a.defeated && a.xp == 0) monsterY += 5;
+                if(a.id == ActorId.Gnome && !a.defeated) monsterY += 5;
                 if(a.defeated && a.deadStripFrame > 0) drawFrame(ctx, a.strip, a.deadStripFrame, centerx, monsterY);
                 else if(a.mimicMimicking) drawFrame(ctx, a.strip, a.stripFrame, centerx, centery);
                 else drawFrame(ctx, a.strip, a.stripFrame, centerx, monsterY);
 
+                if(a.id == ActorId.Gnome && !a.defeated)
+                {
+                    // do not show number
+                }
+                else
                 if(a.defeated)
                 {
                     if(a.xp > 0)
@@ -2771,6 +3306,12 @@ function updatePlaying(ctx, dt)
                     // fontUI.drawLine(ctx, ""+a.monsterLevel, r.centerx() + 1, r.bottom() - 4, FONT_CENTER|FONT_BOTTOM);
                     drawLineOutlineCentered(ctx, ""+a.monsterLevel, r.centerx() + 1, r.bottom() - 4, FONT_CENTER|FONT_BOTTOM)
                 }
+            }
+            else
+            if(a.id == ActorId.Crown)
+            {
+                drawFrame(ctx, stripIconsBig, state.crownAnimation.frame(), centerx, centery);
+                // drawLineOutlineCentered(ctx, "" + state.player.score, r.centerx() + 1, r.bottom() - 3, FONT_CENTER|FONT_BOTTOM);
             }
             else
             if(a.id == ActorId.Treasure)
@@ -2844,191 +3385,14 @@ function updatePlaying(ctx, dt)
     // monsternomicon
     if(state.showingMonsternomicon)
     {
-        let bookR = new Rect();
-        bookR.w = worldR.w;
-        bookR.h = worldR.h - HUDRect.h;
-        let bookLeft = new Rect();
-        bookLeft.copyFrom(bookR);
-        bookLeft.w = bookR.w * 0.5;
-        let bookRight = new Rect();
-        bookRight.copyFrom(bookR);
-        bookRight.w = bookR.w * 0.5;
-        bookRight.x = bookR.w * 0.5;
-
-        // ctx.fillStyle = "#c7a381";
-        // ctx.fillRect(bookR.x, bookR.y, bookR.w, bookR.h);
-        drawFrame(ctx, stripBook, 0, worldR.centerx(), worldR.centery() - 13);
-        let top = 30;
-        fontBook.drawLine(ctx, "Monsternomicon", bookLeft.centerx(), top, FONT_CENTER);
-
-        let lines = [];
-        lines.push("* jorge must defeat dragon");
-        lines.push("* safe to lose all hearts");
-        // lines.push("* observe patterns when dead");
-        lines.push("* touch jorge to level up");
-        // lines.push("* guessing means death");
-        // lines.push("* walls can be taken down");
-        // lines.push("crowned monsters reveal minions");
-        // lines.push("* press \"S\" to toggle sound");
-        if(supportsRightClick()) lines.push("* shift or right click to mark");
-        else lines.push("* hold down button to mark");
-        // lines.push("* fear the mimic");
-        lines.push("* numbers are sum of");
-        lines.push("  monster power");
-
-        drawFrame(ctx, stripHint, 0, bookLeft.centerx(), bookLeft.bottom() - 105 - 15);
-        // drawFrame(ctx, stripHintLevelup, 0, bookLeft.x + 35, bookLeft.bottom() - 40 - 15);
-        // fontUIBook.drawLine(ctx, "touch jorge to level up", 55, bookRight.bottom() - 35 - 15);
-
-        fontBook.drawLine(ctx, "observe monster", bookLeft.centerx(), bookLeft.bottom() - 50, FONT_CENTER);
-        fontBook.drawLine(ctx, "patterns when dead", bookLeft.centerx(), bookLeft.bottom() - 40, FONT_CENTER);
-
-        // fontBook.drawLine(ctx, "fear the mimic", bookRight.centerx(), bookRight.bottom() - 35, FONT_CENTER);
-
-        let soundR = new Rect();
-        soundR.w = 16;
-        soundR.h = 16;
-        soundR.x = bookLeft.x + 20;
-        soundR.y = bookLeft.bottom() - 25;
-        if(clickedLeft && soundR.contains(mousex, mousey))
-        {
-            soundOn = !soundOn;
-            if(soundOn)
-            {
-                play("spell");
-            }
-        }
-        drawFrame(ctx, stripIcons, soundOn ? 58 : 57, soundR.centerx(), soundR.centery());
-
-        let musicR = new Rect();
-        musicR.w = 16;
-        musicR.h = 16;
-        musicR.x = soundR.right() + 10;
-        musicR.y = bookLeft.bottom() - 25;
-        if(clickedLeft && musicR.contains(mousex, mousey))
-        {
-            musicOn = !musicOn;
-        }
-        drawFrame(ctx, stripIcons, musicOn ? 151 : 150, musicR.centerx(), musicR.centery());
-
-        let offy = 0;
-        for(let line of lines)
-        {
-            fontUIBook.drawLine(ctx, line, 12, 20 + offy + top);
-            offy += 15;    
-        }
-
-        let bookRightBody = new Rect();
-        bookRightBody.copyFrom(bookRight);
-        bookRightBody.h = bookRight.w  - 20;
-        bookRightBody.y = 40 + 10;
-        bookRightBody.w *= 0.85;
-        bookRightBody.x += 20;
-        // fontUIBook.drawLine(ctx, "fear the mimic", bookRightBody.centerx(), bookRightBody.centery(), FONT_CENTER);
-
-        // monster list
-        let monsterCountTop = bookRightBody.y + 15;
-        let showCountY = monsterCountTop;
-        let showCountX = bookRightBody.x + 25;
-        let showLineCounter = 0;
-        showCount(makeRat1);
-        showCount(makeBat2);
-        showCount(makeSkeleton3);
-        showCount(makeGargoyle4);
-        // showCount(makeEye5);
-        showCount(makeSlime5);
-        showCount(makeMinotaur6);
-        // showCount(makeSnake7);
-        showCount(makeGuard7);
-        showCount(makeBigSlime8);
-        showCount(makeGiant9);
-        // showCount(makeMinion9);
-        // showCount(makeAngrySnake);
-        // showCount(makeDeath9);
-        showCount(makeLich); 
-
-        // showCount(makeLich); // 9
-        showCount(makeRatKing);
-        showCount(makeGazer);
-        // showCount(makeSlimeKing);
-        // showCount(makeLich);
-        
-        showCount(makeWizard);
-        showCount(makeMimic, stripXYToFrame(70, 375));
-        // showCount(makeDragon);
-        showCount(makeMine);
-        showCount(makeChest);
-        showCount(makeGnome);
-        showCount(makeMedikit);
-        showCount(makeSpellOrb);
-        showCount(makeSpellDisarm);
-        // showCount(makeSpellAngerMonsters);
-        // showCount(makeChest);
-
-        fontUIBook.drawLine(ctx, version, bookLeft.right() - 45, bookRight.bottom() - 12);
-
-        function showCount(makerFn, overrideFrame = -1)
-        {
-            let placeholder = new Actor();
-            makerFn(placeholder);
-
-            let level = placeholder.monsterLevel;
-
-            let count = 0;
-            for(let a of state.actors)
-            {
-                if(placeholder.id == a.id) count += 1;
-                else if(placeholder.id == ActorId.SpellMakeOrb && a.contains == makeSpellOrb) count += 1;
-                else if(placeholder.id == ActorId.Medikit && a.contains == makeMedikit) count += 1;
-                else if(placeholder.id == ActorId.SpellDisarm && a.id == ActorId.MineKing) count += 1;
-                else if(placeholder.id == ActorId.Medikit && a.id == ActorId.Giant) count += 1;
-                else if(placeholder.id == ActorId.SpellRevealRats && a.id == ActorId.RatKing) count += 1;
-                else if(placeholder.id == ActorId.SpellRevealSlimes && a.id == ActorId.Wizard) count += 1;
-
-                // TODO: this should have been another type of actor
-                if(a.id == ActorId.Mine && placeholder.id == a.id && a.monsterLevel == 0)
-                {
-                    level = 0;
-                    overrideFrame = stripXYToFrame(168, 455);
-                }
-            }
-
-            // if(all.length > 0)
-            {
-                let frame = placeholder.stripFrame;
-                if(overrideFrame >= 0) frame = overrideFrame;
-                drawFrame(ctx, stripIcons, 14, showCountX, showCountY);
-                drawFrame(ctx, placeholder.strip, frame, showCountX, showCountY);
-
-                // if(placeholder.id == ActorId.MineKing)
-                // {
-                //     let lich = state.actors.find(a => a.id == ActorId.MineKing);
-                //     if(lich != undefined)
-                //     {
-                //         level = lich.monsterLevel;
-                //     }
-                // }
-
-                let str = "$"+count;
-                if(placeholder.monsterLevel >= 0) fontUIBook.drawLine(ctx, "P"+level, showCountX - 10, showCountY, FONT_VCENTER|FONT_RIGHT);
-                if(makerFn == makeGazer) str = "$?";
-                fontUIBook.drawLine(ctx, str, showCountX + 12, showCountY, FONT_VCENTER);
-                showCountY += 20;
-                showLineCounter += 1;
-                if(showLineCounter == 10)
-                {
-                    showCountX += 90;
-                    showCountY = monsterCountTop;
-                }
-            }
-        }
+        updateBook(ctx, dt, worldR, HUDRect, clickedLeft);
     }
 
     // hud
     drawFrame(ctx, stripHUD, 0, HUDRect.centerx(), HUDRect.centery());
 
     // hero
-    let heroButtonEnabled = isLevelupButtonEnabled || isWinButtonEnabled || isRestartButtonEnabled;
+    let heroButtonEnabled = isLevelupButtonEnabled || isRestartButtonEnabled;
     drawFrame(ctx, stripLevelupButtons, heroButtonEnabled ? 0 : 1, levelupButtonR.centerx(), levelupButtonR.centery() + 1);
     fontHUD.drawLine(ctx, "Jorge", 10, heroR.centery() + 1, FONT_VCENTER);
 
@@ -3049,7 +3413,7 @@ function updatePlaying(ctx, dt)
         {
             heartOffsets.push([hpx, hpy]);
             let w = 16;
-            if(i > 0 && (i+1) % 3 == 0 && state.player.maxHP > 1) w += 4;
+            if(i > 0 && (i+1) % 5 == 0 && state.player.maxHP > 1) w += 6;
             if(i == 16)
             {
                 hpx = heartOffsets[i-1][0];
@@ -3085,7 +3449,7 @@ function updatePlaying(ctx, dt)
         {
             xpOffsetsX.push(xpX);
             let w = 8;
-            if(i > 0 && (i+1) % 3 == 0 && i < (xpTotal - 1) && xpTotal > 3) w += 4;
+            if(i > 0 && (i+1) % 5 == 0 && i < (xpTotal - 1) && xpTotal > 5) w += 8;
             xpX += w;
         }
 
@@ -3117,13 +3481,13 @@ function updatePlaying(ctx, dt)
     let bookSine = (Math.sin(timeElapsed*5)+1)*0.5 * 5 * (nomiconWasEverRead ? 0 : 1);
     
     ctx.save();
-    ctx.translate(nomiconR.centerx(), nomiconR.centery() + 3);
+    ctx.translate(Math.floor(nomiconR.centerx()), Math.floor(nomiconR.centery() + 3));
     ctx.scale(1,1);
     drawFrame(ctx, stripIconsBig, 1, 0, 0);
     ctx.restore();
 
     ctx.save();
-    ctx.translate(nomiconR.centerx(), nomiconR.centery() - bookSine);
+    ctx.translate(Math.floor(nomiconR.centerx()), Math.floor(nomiconR.centery() - bookSine));
     ctx.scale(1,1);
     drawFrame(ctx, stripIconsBig, 0, 0, 0);
     ctx.restore();
@@ -3133,7 +3497,7 @@ function updatePlaying(ctx, dt)
         let deathmap = {};
         deathmap[ActorId.Mine] = "exploded by a mine";
         deathmap[ActorId.MineKing] = "crushed by the mine king";
-        deathmap[ActorId.Dragon] = "molten by the dragon";
+        deathmap[ActorId.Dragon] = "torched by the dragon";
         deathmap[ActorId.Mimic] = "eaten by the mimic";
         deathmap[ActorId.RatKing] = "killed by the rat king";
         deathmap[ActorId.Rat] = "killed by a rat";
@@ -3145,20 +3509,22 @@ function updatePlaying(ctx, dt)
         deathmap[ActorId.Giant] = "mauled by giant"; // special case later
         deathmap[ActorId.Wizard] = "zapped by the wizard";
         deathmap[ActorId.Gazer] = "lobotomized by a gazer";
-        deathmap[ActorId.BigSlime] = "consumed by a slime";
+        deathmap[ActorId.BigSlime] = "liquefied by a slime";
         deathmap[ActorId.Bat] = "killed by a bat";
         deathmap[ActorId.Guard] = "killed by a guardian";
+        deathmap[ActorId.Fidel] = "this should never happen";
+        deathmap[ActorId.DragonEgg] = "this should never happen";
         let deathCause = deathmap[state.lastActorTypeClicked];
         if(state.lastActorNameClicked == "romeo") deathCause = "mauled by romeo";
         else if(state.lastActorNameClicked == "juliet") deathCause = "mauled by juliet"; 
 
         drawMultiline(ctx, fontHUD, [deathCause, "< restart"], levelupButtonR.right() + 5, HUDRect.centery(), FONT_VCENTER);
     }
-    else if(state.status == GameStatus.DragonDefeated)
-    {
-        let msg = state.clearedBoard ? "DRAGON LAIR WIPED OUT!!!" : "DRAGON DEFEATED!";
-        drawMultiline(ctx, fontHUD, [msg, "< win the game"], levelupButtonR.right() + 5, HUDRect.centery(), FONT_VCENTER);
-    }
+    // else if(state.status == GameStatus.DragonDefeated)
+    // {
+    //     let msg = state.clearedBoard ? "DRAGON LAIR WIPED OUT!!!" : "DRAGON DEFEATED!";
+    //     drawMultiline(ctx, fontHUD, [msg, "< win the game"], levelupButtonR.right() + 5, HUDRect.centery(), FONT_VCENTER);
+    // }
 
     if(state.levelupAnimation.running())
     {
@@ -3169,6 +3535,11 @@ function updatePlaying(ctx, dt)
         drawFrame(ctx, stripLevelup, state.levelupAnimation.frame(), 0, 0);
         ctx.restore();
     }
+
+    if(state.crownAnimation.running())
+    {
+        state.crownAnimation.update(dt);
+    }
     
     ctx.restore();
 
@@ -3177,6 +3548,28 @@ function updatePlaying(ctx, dt)
         newGame();
         play("restart");
     }    
+}
+
+function getGnomeFavoriteJumpTarget()
+{
+    let bestCandidate = null;
+    let closestCandidateDist = 1000000;
+    for(let c of state.actors)
+    {
+        if(!isEmpty(c) || c.revealed) continue;
+        for(let n of state.actors)
+        {
+            if(n.id != ActorId.Medikit) continue;
+            let delta = distance(n.tx, n.ty, c.tx, c.ty);
+            if(delta < closestCandidateDist)
+            {
+                closestCandidateDist = delta;
+                bestCandidate = c;
+            }
+        }
+    }
+
+    return bestCandidate;
 }
 
 function isLevelHalfHeart(level)
@@ -3231,6 +3624,7 @@ function drawMarker(ctx, mark, centerx, centery)
 
 function updateWinscreen(ctx, dt)
 {
+    // state.clearedBoard = true;
     musicToRun = "music_win";
 
     let r = new Rect();
@@ -3239,35 +3633,66 @@ function updateWinscreen(ctx, dt)
     
     ctx.fillStyle = "#000000";
     ctx.fillRect(r.x, r.y, r.w, r.h);
-    ctx.drawImage(imgJuliDragon, r.centerx() - imgJuliDragon.width/2, -10);
-    // fontHUD.drawLine(ctx, "you win the gaem!!!", 100, 100);
+    let img = hasStamp(STAMP_CLEAR) ? imgJuliDragonAlternate : imgJuliDragon;
+    ctx.drawImage(img, r.centerx() - imgJuliDragon.width/2, -10);
 
     let lines = [];
-    lines.push("As the deadly beast finally expires");
-    lines.push("Jorge's thoughts get clouded");
-    lines.push("By his troubled desires.");
-    lines.push("");
-    lines.push("\"Is this the end? Shall I too say farewell");
-    lines.push("To the battlefields, and let my body rest");
-    lines.push("And be part of the bonfire?\"");
+    if(hasStamp(STAMP_CLEAR))
+    {
+        lines.push("Nothing but blood in the desolate field,");
+        lines.push("Echoes of battles the wind has revealed.");
+        // lines.push("Echoes of battles that fade in the wind.");
+        lines.push("Jorge looks up, and a question is posed:");
+        lines.push("Perhaps I'm not different from those I've disposed?");
+    }
+    else
+    {
+        // lines.push("As the deadly beast finally expires");
+        // lines.push("Jorge's thoughts get clouded");
+        // lines.push("By his troubled desires.");
+        // lines.push("");
+        // lines.push("\"Is this the end? Shall I too say farewell");
+        // lines.push("To the battlefields, and let my body rest");
+        // lines.push("And be part of the bonfire?\"");
+        lines.push("Sitting beside the smoking remains");
+        lines.push("Jorge admires the dragon's red scales");
+        lines.push("Deaf to the cheers of celebrating men");
+        lines.push("a hunter without the bond of his prey");
+    }
 
     // lines.push("sitting next to the smoking corpse");
     // lines.push("jorge admires the glimmer of its scales");
     // lines.push("oblivious to the celebrations of men");
     // lines.push("a hunter without the bond of his prey");
     // lines.push("feeling the bitter sting of loneliness");
-    lines.push("");
-    lines.push("final score: "+state.player.score+ "     (max: "+state.stats.totalXP+")");
-    drawMultiline(ctx, fontWinscreen, lines, r.centerx(), 200, FONT_CENTER|FONT_VCENTER);
+    let deltaSeconds = Math.floor((state.endTime - state.startTime)/1000);
+    let deltaMinutes = Math.floor(deltaSeconds/60) % 60;
+    let deltaHours = Math.floor(deltaMinutes/60);
+    let deltaSecondsAjusted = deltaSeconds % 60;
+    let timeStr = "#"+deltaHours+":"+deltaMinutes+":"+deltaSecondsAjusted.toString().padStart(2, "0");
 
-    let offy = r.bottom() - 20;
-    fontCredits.drawLine(ctx, "por Daniel Benmergui - musica: hernan rozenwasser", r.centerx(), offy, FONT_BOTTOM|FONT_CENTER);
-    offy += 7;
-    fontCredits.drawLine(ctx, "imagen: julieta romero - poema: dani renton", r.centerx(), offy, FONT_BOTTOM|FONT_CENTER);
-    offy += 7;
-    fontCredits.drawLine(ctx, "gracias: mer grazzini, mademoiselle ^lin, antonio uribe", r.centerx(), offy, FONT_BOTTOM|FONT_CENTER);
-    offy += 7;
-    fontCredits.drawLine(ctx, "inspirado en mamono sweeper - hecho en #", r.centerx(), offy, FONT_BOTTOM|FONT_CENTER);
+    lines.push("");
+    lines.push("score: "+state.player.score+ "  (max: "+state.stats.totalXP+")");
+    lines.push(timeStr);
+    drawMultiline(ctx, fontWinscreen, lines, r.centerx(), 185, FONT_CENTER|FONT_VCENTER, 6);
+
+    fontCredits.drawLine(ctx, "por daniel benmergui - "+version, WORLDW - 5, WORLDH - 5, FONT_RIGHT);
+
+    // let stampx = (WORLDW - state.stampsCollectedThisRun.length * 30 - (state.stampsCollectedThisRun.length - 1) * 5) * 0.5;
+    let stampsW = state.stampsCollectedThisRun.length * 30 + (state.stampsCollectedThisRun.length - 1) * 5;
+    let stampx = WORLDW * 0.5 - stampsW * 0.5 + 30 * 0.5;
+    let stampy = 293;
+    for(let stampId of state.stampsCollectedThisRun)
+    {
+        let index = STAMP_SPEC_IDS.findIndex(s => s == stampId);
+        drawFrame(ctx, stripStamps, STAMP_SPEC_FRAME[index], stampx, stampy);
+        stampx += 35;
+    }
+}
+
+function hasStamp(id)
+{
+    return collectedStamps.includes(id);
 }
 
 function onUpdate(phase, dt)
@@ -3279,6 +3704,9 @@ function onUpdate(phase, dt)
         ZOOMX = 2;
         ZOOMY = 2;
 
+        stripStoryteller = loadStrip("storyteller.png", 158, 62, 158/2, 62/2);
+        stripStamps = loadStrip("badges.png", 30, 30, 30/2, 30/2);
+        stripBookFlap = loadStrip("bookflap.png", 24, 24, 24/2, 24/2);
         stripIconsBig = loadStrip("icons24x24.png", 24, 24, 24/2, 24/2);
         stripHintLevelup = loadStrip("hint_levelup.png", 32, 32, 32/2, 32/2);
         stripHint = loadStrip("hint.png", 90, 90, 90/2, 90/2);
@@ -3288,11 +3716,12 @@ function onUpdate(phase, dt)
         stripIcons = loadStrip("icons16x16.png", 16, 16, 8, 8);
         stripMonsters = loadStrip("tiny_dungeon_monsters.png", 16, 16, 8, 8);
         stripHUD = loadStrip("hud.png", 390, 41, 390/2, 41/2);
-        stripBook = loadStrip("book.png", 450, 300, 450*0.5, 300*0.5);
+        stripBook = loadStrip("book.png", 381, 289, 381*0.5, 289*0.5);
         stripFX = loadStrip("uf_FX_impact.png", 48, 48, 48/2, 48/2);
         stripScanlines = loadStrip("scanlines.png", 450, 335, 0, 0);
         stripLevelup = loadStrip("levelup.png", 225, 125, 225/2, 125/2);
         imgJuliDragon = loadImage("juli_dragon.png");
+        imgJuliDragonAlternate = loadImage("juli_dragon_alternate.png");
 
         fontDebug = loadFont("font_small_white.png", 6, 6, 0, 6, 
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-+=:;,\"<>.?/\\[]_| ",
@@ -3304,9 +3733,9 @@ function onUpdate(phase, dt)
             false);
         fontCredits.spaceWidth = 5;
     
-        fontUIBook = loadFont("font_small_white.png", 6, 6, 0, 6, 
+        fontUIBook = loadFont("font_small_book.png", 6, 6, 0, 6, 
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-+=:;,\"<>.?/\\[]_| ",
-            false, 0x4f2a07);
+            false);
         fontUIBook.spaceWidth = 5;
 
         fontUINumbers = loadFont("ingame_font.png", 8, 8, 0, 8, 
@@ -3363,13 +3792,15 @@ function onUpdate(phase, dt)
         fontUIRed.char_sep -= 1;
         fontUIRed.spaceWidth = 5;
     
-        addSound("open_hover", "open_hover.wav"); // TODO
-        addSound("close_hover", "close_hover.wav"); // TODO
-        addSound("hover_over_button", "ui_hover.wav"); // TODO
+        addSound("crack_egg", "egg.wav");
+        addSound("pageflip", "pageflip.wav");
+        addSound("open_hover", "open_hover.wav");
+        addSound("close_hover", "close_hover.wav");
+        addSound("hover_over_button", "ui_hover.wav");
         addSound("dragon_hurt", "dragon_complaining.wav");
         addSound("dragon_dead", "dragon_death.wav");
         addSound("music_win", "Dragon_Final.mp3");
-        addSound("music", "Dragon_ingame.mp3");
+        addSoundStreamed("music", "Dragon_ingame.mp3");
         addSound("gnome_jump", "laugh.wav");
         addSound("disappointed", "disappointed.wav");
         addSound("earthquake", "shake.wav");
@@ -3412,6 +3843,15 @@ function onUpdate(phase, dt)
                 sndEvents[eventId] = [];
             }
             sndEvents[eventId].push(loadSound("data/"+path));
+        }
+
+        function addSoundStreamed(eventId, path)
+        {
+            if(!(eventId in sndEvents))
+            {
+                sndEvents[eventId] = [];
+            }
+            sndEvents[eventId].push(loadSoundStreamed("data/"+path));    
         }
     }
     else if(phase == UpdatePhase.Loading)
@@ -3461,7 +3901,7 @@ function onUpdate(phase, dt)
             updateGeneratingDungeon(ctx, dt);
         }
         else
-        if(state.status == GameStatus.Playing || state.status == GameStatus.Dead || state.status == GameStatus.DragonDefeated)
+        if(state.status == GameStatus.Playing || state.status == GameStatus.Dead)
         {
             updatePlaying(ctx, dt);
         }
@@ -3473,7 +3913,7 @@ function onUpdate(phase, dt)
 
         drawFrame(ctx, stripScanlines, 0, 0, 0);
 
-        if(keysJustPressed.includes('d'))
+        if(keysJustPressed.includes('D'))
         {
             debugOn = !debugOn;
         }
@@ -3507,10 +3947,8 @@ function drawXPIndicator(ctx, rect, xp)
     fontUIYellow.drawLine(ctx, ""+xp, rect.centerx() + 4, rect.bottom() - 4, FONT_CENTER|FONT_BOTTOM);
 }
 
-function drawMultiline(ctx, font, lines, x, y, centering)
+function drawMultiline(ctx, font, lines, x, y, centering, vsep = 5)
 {
-    let vsep = 5;
-
     let textR = new Rect();
     textR.h = 24;
     textR.y = y - textR.h/2;
