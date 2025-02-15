@@ -2145,7 +2145,7 @@ function updateGeneratingDungeon(ctx, dt)
             state.startTime = Date.now();
 
             // center world and move the backBuffer a bit to show that it can be dragged
-            if (isMobile()) {
+            if (screenMode == WindowMode.ScrollHorizontal) {
                 let dragLimits = getBackBufferDragLimits()
                 if (screenMode == WindowMode.ScrollHorizontal) {
                     let drx = dragLimits[0]
@@ -2175,11 +2175,11 @@ function updateGeneratingDungeon(ctx, dt)
     ctx.fillRect(0, 0, worldR.w, worldR.h);
 
     let middle = []
-    if (isMobile()) 
-        middle = screen2world(window.innerWidth/2,window.innerHeight/2)
-    else
+    if (screenMode == WindowMode.ScrollHorizontal) {
+        middle = scale2world(window.innerWidth/2,window.innerHeight/2)
+    } else {
         middle = [worldR.centerx(),worldR.centery()]
-    
+    }    
     fontHUD.drawLine(ctx, "building dragon lair...", middle[0],middle[1], FONT_CENTER|FONT_VCENTER);
     ctx.restore();
 }
@@ -2191,9 +2191,9 @@ function updatePlaying(ctx, dt)
     worldR.h = backBuffer.height;
     let screenSizeInWorldCoords = scale2world(window.innerWidth, window.innerHeight)
     let HUDRect = new Rect();
-    HUDRect.w = isMobile() ? screenSizeInWorldCoords[0] : backBuffer.width;
+    HUDRect.w = (screenMode == WindowMode.ScrollHorizontal) ? screenSizeInWorldCoords[0] : backBuffer.width;
     HUDRect.h = 41;
-    HUDRect.x = isMobile() ? -backBufferOffsetX : 0
+    HUDRect.x = (screenMode == WindowMode.ScrollHorizontal) ? -backBufferOffsetX : 0
     HUDRect.y = backBuffer.height - HUDRect.h;
     let oldPlayerHP = state.player.hp;
     let oldPlayerXP = state.player.xp;
@@ -2232,7 +2232,7 @@ function updatePlaying(ctx, dt)
         let offx = 0;
         let markerButtonTotalW = 4 * 24;
         let markerButtonTotalH = 4 * 24;
-        let basex = isMobile() ? -backBufferOffsetX : hoverTileR.right();
+        let basex = (screenMode == WindowMode.ScrollHorizontal) ? -backBufferOffsetX : hoverTileR.right();
         let basey = hoverTileR.y - markerButtonTotalH * 0.5 + 24 * 0.5;
         if(basex + markerButtonTotalW > worldR.right())
         {
@@ -2249,7 +2249,7 @@ function updatePlaying(ctx, dt)
             basey = 0;
         }
 
-        if (isMobile()) {
+        if (screenMode == WindowMode.ScrollHorizontal) {
             basey = backBuffer.height - 24*2
         }
 
@@ -2265,7 +2265,7 @@ function updatePlaying(ctx, dt)
             hoverRects.push(r);
             hoverMarkers.push(ALL_MARKERS[i]);
             cols++;
-            if (isMobile()) {
+            if (screenMode == WindowMode.ScrollHorizontal) {
                 if (cols == 8) {
                     cols = 0
                     offy += r.h
@@ -3001,7 +3001,7 @@ function updatePlaying(ctx, dt)
     heroR.w = 32;
     heroR.h = 32;
     heroR.y = HUDRect.centery() - heroR.h * 0.5 - 3;
-    heroR.x = HUDRect.x + (isMobile() ? 5 : 55)
+    heroR.x = HUDRect.x + (screenMode == WindowMode.ScrollHorizontal ? 5 : 55)
 
     
     let levelupButtonR = new Rect();
@@ -3222,8 +3222,8 @@ function updatePlaying(ctx, dt)
     let nomiconR = new Rect();
     nomiconR.w = 32;
     nomiconR.h = 32;
-    if (isMobile()) 
-        nomiconR.x = HUDRect.right() - nomiconR.w - 5
+    if (screenMode == WindowMode.ScrollHorizontal) 
+        nomiconR.x = HUDRect.right() - nomiconR.w - 6
     else
         nomiconR.x = lerp(13, worldR.right() - nomiconR.w - 5, 1 - state.bookLocationElapsed/BOOK_MOVEMENT_DURATION);
     nomiconR.y = HUDRect.centery() - nomiconR.h * 0.5;
@@ -3438,12 +3438,12 @@ function updatePlaying(ctx, dt)
 
     // hud
     //drawFrame(ctx, stripHUD, 0, HUDRect.centerx(), HUDRect.centery());
-    drawFrame(ctx, stripHUD, 0, HUDRect.centerx(), HUDRect.centery());
+    drawFrame(ctx, stripHUD, 0, HUDRect.centerx() + (screenMode == WindowMode.ScrollHorizontal ? 0.5 : 0) , HUDRect.centery());
     
     // hero
     let heroButtonEnabled = isLevelupButtonEnabled || isRestartButtonEnabled;
     drawFrame(ctx, stripLevelupButtons, heroButtonEnabled ? 0 : 1, levelupButtonR.centerx(), levelupButtonR.centery() + 1);
-    if (!isMobile())
+    if (screenMode != WindowMode.ScrollHorizontal)
         fontHUD.drawLine(ctx, "Jorge", 10, heroR.centery() + 1, FONT_VCENTER);
 
     ctx.save();
@@ -3453,7 +3453,7 @@ function updatePlaying(ctx, dt)
     else if(state.heroAnim.running()) drawFrame(ctx, stripHero, state.heroAnim.frame(), 0, 0);
     ctx.restore();
 
-    let hudLabelsOffX = HUDRect.x + 60
+    let hudLabelsOffX = HUDRect.x + 60 + (screenMode == WindowMode.ScrollHorizontal ? 0.5 : 0)  // +.5 prevents jitter when dragging
     
     // hp
     if(state.status == GameStatus.Playing)
@@ -3475,16 +3475,15 @@ function updatePlaying(ctx, dt)
             hpx += w;
         }
 
-        let offx = heroR.right() + 10;
+        let offx = heroR.right() + 10 + (screenMode == WindowMode.ScrollHorizontal ? 0.5 : 0)  // +.5 prevents jitter when dragging
         let offy = worldR.h - 29;
-        //let msc = isMobile() ? 0.5 : 1
         let msc = 1
 
-        if (isMobile()) {
+        if (screenMode == WindowMode.ScrollHorizontal) {
             // mobile hud: draw one heart y the HP numbers
             let ch1 = heartOffsets[0]
             let ch2 = heartOffsets[1]
-            drawFrame(ctx, stripIcons, 0, ch1[0] + offx, ch1[1] + offy, false, msc);
+            drawFrame(ctx, stripIcons, (state.player.hp == 1 ? 1 : 0), ch1[0] + offx, ch1[1] + offy, false, msc);
             fontHUD.drawLine(ctx, ""+(state.player.hp-1)+" of "+(state.player.maxHP-1), hudLabelsOffX, ch2[1]+offy-1, FONT_VCENTER )
         } else {
             for(let i = 0; i < heartOffsets.length; i++)
@@ -3518,19 +3517,19 @@ function updatePlaying(ctx, dt)
             xpX += w;
         }
 
-        let offx = heroR.right() + 10;//(worldR.w - xpOffsetsX[xpOffsetsX.length - 1])/2;
+        let offx = heroR.right() + 10 + (screenMode == WindowMode.ScrollHorizontal ? 0.5 : 0)
         let offy = worldR.h - 14;
-        if(isMobile()) {
+        if(screenMode == WindowMode.ScrollHorizontal) {
             // mobile hud: draw an icon, + sign and text line
             let icon = 6
-
+            
             let anim = state.xpAnimations.find(anim => anim.index == 0);
             if(anim != undefined) icon = anim.frames[anim.timer.frame];
             drawFrame(ctx, stripIcons, icon, xpOffsetsX[0]*msc + offx, offy+1, false, msc);
 
             if(state.player.xp > nextLevelXP(state.player.level))
             {
-                offx += xpOffsetsX[0] + 6
+                offx += xpOffsetsX[0] + 6 + 0.5
                 drawFrame(ctx, stripIcons, 56, offx, offy-4);
             }
             let loffy = worldR.h - 14
@@ -3548,7 +3547,7 @@ function updatePlaying(ctx, dt)
                 drawFrame(ctx, stripIcons, icon, xpOffsetsX[i]*msc + offx, offy, false, msc);
             }
             offx += xpOffsetsX[xpOffsetsX.length - 1] + 12;
-
+            
             if(state.player.xp > nextLevelXP(state.player.level))
             {
                 drawFrame(ctx, stripIcons, 56, offx, worldR.h - 12);
@@ -3563,8 +3562,8 @@ function updatePlaying(ctx, dt)
         // drawFrame(ctx, stripLevelupButtons, 2, levelupButtonR.centerx(), levelupButtonR.centery());
     }
 
-    // book icon
-    if (state.status != GameStatus.Dead || !isMobile()) {    
+   // book icon
+if (state.status != GameStatus.Dead || (screenMode != WindowMode.ScrollHorizontal)) {    
         let bookSine = (Math.sin(timeElapsed*5)+1)*0.5 * 5 * (nomiconWasEverRead ? 0 : 1);
     
         ctx.save();
@@ -3618,7 +3617,7 @@ function updatePlaying(ctx, dt)
     {
         state.levelupAnimation.update(dt);
         ctx.save();
-        if (isMobile())
+        if (screenMode == WindowMode.ScrollHorizontal)
             ctx.translate(HUDRect.x + 40, HUDRect.bottom() - 65);
         else
             ctx.translate(70, HUDRect.bottom() - 65);

@@ -229,13 +229,21 @@ function loadFont(imagePath, cellw, cellh, pivotx, pivoty, charMap, hasCapitaliz
 
 function fitCanvas()
 {
-    screenMode = isMobile() ? WindowMode.ScrollHorizontal : WindowMode.FitScreen;
-
+    backBufferOffsetX = 0
+    backBufferOffsetY = 0
+    
     let windowW = window.innerWidth;
     let windowH = window.innerHeight;
     let targetW = windowW;
     let targetH = windowH;
     let widthOverHeight = backBuffer.width / backBuffer.height;
+
+    if (isMobile()) {
+        screenMode = ( windowW > windowH ) ? WindowMode.FitScreen : WindowMode.ScrollHorizontal
+    } else {
+        screenMode = WindowMode.FitScreen;
+    }
+    
     if(screenMode == WindowMode.FitScreen)
     {
         if(windowH > windowW)
@@ -472,7 +480,7 @@ function onInternalUpdate(now)
     timeElapsed += dt;
 
     // back buffer drag and inertia
-    if (isMobile()) {
+    if (screenMode == WindowMode.ScrollHorizontal) {
         let f = backBuffer.height / canvas.height
         let wiw = window.innerWidth
         let wih = window.innerHeight
