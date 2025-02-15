@@ -2230,11 +2230,9 @@ function updatePlaying(ctx, dt)
 
         let offy = 0;
         let offx = 0;
-        let basex = isMobile() ? -backBufferOffsetX : hoverTileR.right();
-        let basey = hoverTileR.y;
         let markerButtonTotalW = 4 * 24;
         let markerButtonTotalH = 4 * 24;
-        let basex = hoverTileR.right();
+        let basex = isMobile() ? -backBufferOffsetX : hoverTileR.right();
         let basey = hoverTileR.y - markerButtonTotalH * 0.5 + 24 * 0.5;
         if(basex + markerButtonTotalW > worldR.right())
         {
