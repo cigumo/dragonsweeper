@@ -2144,17 +2144,19 @@ function updateGeneratingDungeon(ctx, dt)
             state.status = GameStatus.Playing;
             state.startTime = Date.now();
 
-            // center world and move the backBuffer a bit to show that it can be dragged
-            if (screenMode == WindowMode.ScrollHorizontal) {
+            // initial push towards the starting orb to hint that you can drag the board
+            let orb = state.actors.find(a => a.id == ActorId.Orb)
+            let dragon = state.actors.find(a => a.id == ActorId.Dragon)
+            if (orb != undefined && dragon != undefined) {                
                 let dragLimits = getBackBufferDragLimits()
                 if (screenMode == WindowMode.ScrollHorizontal) {
                     let drx = dragLimits[0]
                     backBufferOffsetX = (drx[0]+drx[1])/2
-                    mouseDragSpeedX = mouseDragInertiaMaxSpeed / 6
+                    mouseDragSpeedX = ((dragon.tx-orb.tx)/(state.gridW/2)) * mouseDragInertiaMaxSpeed / 2
                 } else if (screenMode == WindowMode.ScrollVertical) {
                     let dry = dragLimits[1]
                     backBufferOffsetY = (dry[0]+dry[1])/2
-                    mouseDragSpeedY = mouseDragInertiaMaxSpeed / 6
+                    mouseDragSpeedY = ((dragon.ty-orb.ty)/(state.gridH/2)) * mouseDragInertiaMaxSpeed / 2
                 }
             }
         }
