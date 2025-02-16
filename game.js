@@ -9,6 +9,7 @@ let fontDebug;
 /** @type {BitmapFont} */
 let fontUINumbers;
 let fontHUD;
+let fontHUDSmall
 let fontUIOrange;
 let fontUIGray;
 let fontUIBlackDark;
@@ -3585,31 +3586,34 @@ if (state.status != GameStatus.Dead || (screenMode != WindowMode.ScrollHorizonta
 
     if(state.status == GameStatus.Dead)
     {
-        let deathmap = {};
-        deathmap[ActorId.Mine] = "exploded by a mine";
-        deathmap[ActorId.MineKing] = "crushed by the mine king";
-        deathmap[ActorId.Dragon] = "torched by the dragon";
-        deathmap[ActorId.Mimic] = "eaten by the mimic";
-        deathmap[ActorId.RatKing] = "killed by the rat king";
-        deathmap[ActorId.Rat] = "killed by a rat";
-        deathmap[ActorId.Slime] = "consumed by a slime";
-        deathmap[ActorId.Gargoyle] = "petrified by a gargoyle";
-        deathmap[ActorId.Minotaur] = "trampled by a minotaur";
-        deathmap[ActorId.Skeleton] = "slain by a skeleton";
-        deathmap[ActorId.Snake] = "killed by a snake";
-        deathmap[ActorId.Giant] = "mauled by giant"; // special case later
-        deathmap[ActorId.Wizard] = "zapped by the wizard";
-        deathmap[ActorId.Gazer] = "lobotomized by a gazer";
-        deathmap[ActorId.BigSlime] = "liquefied by a slime";
-        deathmap[ActorId.Bat] = "killed by a bat";
-        deathmap[ActorId.Guard] = "killed by a guardian";
-        deathmap[ActorId.Fidel] = "this should never happen";
+        let deathmap = {};          //                     | fontHUD visible chars aspect 0.58
+        deathmap[ActorId.Mine]      = "exploded by a mine";
+        deathmap[ActorId.MineKing]  = "crushed by the mine king";
+        deathmap[ActorId.Dragon]    = "torched by the dragon";
+        deathmap[ActorId.Mimic]     = "eaten by the mimic";
+        deathmap[ActorId.RatKing]   = "killed by the rat king";
+        deathmap[ActorId.Rat]       = "killed by a rat";
+        deathmap[ActorId.Slime]     = "consumed by a slime";
+        deathmap[ActorId.Gargoyle]  = "petrified by a gargoyle";
+        deathmap[ActorId.Minotaur]  = "trampled by a minotaur";
+        deathmap[ActorId.Skeleton]  = "slain by a skeleton";
+        deathmap[ActorId.Snake]     = "killed by a snake";
+        deathmap[ActorId.Giant]     = "mauled by giant"; // special case later
+        deathmap[ActorId.Wizard]    = "zapped by the wizard";
+        deathmap[ActorId.Gazer]     = "lobotomized by a gazer";
+        deathmap[ActorId.BigSlime]  = "liquefied by a slime";
+        deathmap[ActorId.Bat]       = "killed by a bat";
+        deathmap[ActorId.Guard]     = "killed by a guardian";
+        deathmap[ActorId.Fidel]     = "this should never happen";
         deathmap[ActorId.DragonEgg] = "this should never happen";
         let deathCause = deathmap[state.lastActorTypeClicked];
         if(state.lastActorNameClicked == "romeo") deathCause = "mauled by romeo";
         else if(state.lastActorNameClicked == "juliet") deathCause = "mauled by juliet"; 
 
-        drawMultiline(ctx, fontHUD, [deathCause, "< restart"], levelupButtonR.right() + 5, HUDRect.centery(), FONT_VCENTER);
+        if (screenMode == WindowMode.ScrollHorizontal) 
+            drawMultiline(ctx, fontHUDSmall, [deathCause, "< restart"], levelupButtonR.right() + 5, HUDRect.centery()+5, FONT_VCENTER);
+        else
+            drawMultiline(ctx, fontHUD, [deathCause, "< restart"], levelupButtonR.right() + 5, HUDRect.centery(), FONT_VCENTER);
     }
     // else if(state.status == GameStatus.DragonDefeated)
     // {
@@ -3883,6 +3887,11 @@ function onUpdate(phase, dt)
             false, 0xd9d9d9);
         fontHUD.spaceWidth = 5;
         // fontHUD.char_sep -= 1;
+
+        fontHUDSmall = loadFont("font_small_white.png", 6, 6, 0, 6, 
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-+=:;,\"<>.?/\\[]_| ",
+            false);
+        fontHUDSmall.spaceWidth = 5;
 
         fontWinscreen = loadFont("ingame_font.png", 8, 8, 0, 8, 
             "1234567890!#$%&*()-+=[]:;\"'<>,.?/ABCDEFGHIJKLMNOPQRSTUVWXYZ _",
