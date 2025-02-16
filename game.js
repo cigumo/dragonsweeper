@@ -3754,6 +3754,10 @@ function drawMarker(ctx, mark, centerx, centery)
 
 function updateWinscreen(ctx, dt)
 {
+    // removes horizontal scroll
+    if (screenMode != WindowMode.FitScreen)
+        fitCanvas(WindowMode.FitScreen)
+    
     // state.clearedBoard = true;
     musicToRun = "music_win";
 

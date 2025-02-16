@@ -229,7 +229,7 @@ function loadFont(imagePath, cellw, cellh, pivotx, pivoty, charMap, hasCapitaliz
     return ret;
 }
 
-function fitCanvas()
+function fitCanvas(forceMode)
 {
     backBufferOffsetX = 0
     backBufferOffsetY = 0
@@ -240,10 +240,14 @@ function fitCanvas()
     let targetH = windowH;
     let widthOverHeight = backBuffer.width / backBuffer.height;
 
-    if (isMobile()) {
-        screenMode = ( windowW > windowH ) ? WindowMode.FitScreen : WindowMode.ScrollHorizontal
+    if (forceMode != undefined) {
+        screenMode = forceMode
     } else {
-        screenMode = WindowMode.FitScreen;
+        if (isMobile()) {
+            screenMode = ( windowW > windowH ) ? WindowMode.FitScreen : WindowMode.ScrollHorizontal
+        } else {
+            screenMode = WindowMode.FitScreen;
+        }
     }
     
     if(screenMode == WindowMode.FitScreen)
