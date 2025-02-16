@@ -240,7 +240,9 @@ function fitCanvas(forceMode)
     let targetH = windowH;
     let widthOverHeight = backBuffer.width / backBuffer.height;
 
-    if (forceMode != undefined) {
+    if (forceMode === WindowMode.FitScreen
+        || forceMode === WindowMode.ScrollHorizontal
+        || forceMode === WindowMode.ScrollVertical) {
         screenMode = forceMode
     } else {
         if (isMobile()) {
