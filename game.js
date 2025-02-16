@@ -51,7 +51,7 @@ let collectedStamps = [];
 
 let sndEvents = {};
 
-const version = "v1.1.18-c2";
+const version = "v1.1.18-c3";
 const TIME_TO_HOVER_MENU = 0.33;
 const BOOK_MOVEMENT_DURATION = 1;
 const MAX_HP = 19;

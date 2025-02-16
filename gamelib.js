@@ -16,6 +16,7 @@ let ZOOMX = 1;
 let ZOOMY = 1;
 let WORLDW = 600;
 let WORLDH = 600;
+let hScrollMinAspect = 0.58; // limits how thin can the screen be (iPhone 13 mini: 0.604)
 let backBuffer;
 let upscaledBackBuffer;
 let smoothing = false;
@@ -269,7 +270,8 @@ function fitCanvas()
     else if (screenMode == WindowMode.ScrollHorizontal)
     {
         smoothing = true;
-        targetH = windowH * 1
+        let aspect = clamp(hScrollMinAspect, 1, windowW/windowH)
+        targetH = windowW / aspect
         targetW = targetH * WORLDW/WORLDH
     }
     canvas.width = targetW;
@@ -280,7 +282,8 @@ function fitCanvas()
     canvas.style.left = "0";
     canvas.style.right = "0";
     canvas.style.margin = "auto";
-    canvas.style.imageRendering = "pixelated;crisp-edges";
+    if (!isMobile()) 
+        canvas.style.imageRendering = "pixelated;crisp-edges";
 }
 
 function onLoadPage()
@@ -498,8 +501,8 @@ function onInternalUpdate(now)
             let dx = f * (mouseScreenX - mouseDragLastX)
             let dy = f * (mouseScreenY - mouseDragLastY)
             mouseDragInertiaTime = lastUpdateTime
-            mouseDragSpeedX = dx/dt
-            mouseDragSpeedY = dy/dt
+            mouseDragSpeedX = (screenMode == WindowMode.ScrollVertical)   ? 0 : dx/dt
+            mouseDragSpeedY = (screenMode == WindowMode.ScrollHorizontal) ? 0 : dy/dt
 
             if (mouseJustDragged) {
                 if (screenMode == WindowMode.ScrollHorizontal) {
