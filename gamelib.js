@@ -1259,6 +1259,12 @@ function screen2world(x,y)
     return [(f*x - backBufferOffsetX),(f*y - backBufferOffsetY)]
 }
 
+function world2Screen(x,y)
+{
+    let f = (backBuffer.height / canvas.height)
+    return [(x + backBufferOffsetX)/f, (y + backBufferOffsetY)/f]
+}
+
 function scale2world(w,h)
 {
     let f = (backBuffer.height / canvas.height)
