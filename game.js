@@ -3488,7 +3488,9 @@ function updatePlaying(ctx, dt)
             // mobile hud: draw one heart y the HP numbers
             let ch1 = heartOffsets[0]
             let ch2 = heartOffsets[1]
-            drawFrame(ctx, stripIcons, (state.player.hp == 1 ? 1 : 0), ch1[0] + offx, ch1[1] + offy, false, msc);
+            //let icon = (state.player.hp == 1 ? 1 : 0)
+            let icon = 92 - Math.floor(12 * (state.player.hp-1) / (state.player.maxHP-1))
+            drawFrame(ctx, stripIcons, icon, ch1[0] + offx, ch1[1] + offy, false, msc);
             fontHUD.drawLine(ctx, ""+(state.player.hp-1)+" of "+(state.player.maxHP-1), hudLabelsOffX, ch2[1]+offy-1, FONT_VCENTER )
         } else {
             for(let i = 0; i < heartOffsets.length; i++)
