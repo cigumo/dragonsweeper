@@ -54,6 +54,7 @@ let sndEvents = {};
 
 const version = "v1.1.18-c3";
 const TIME_TO_HOVER_MENU = 0.33;
+const HOVER_MENU_BOTTOM = false;
 const BOOK_MOVEMENT_DURATION = 1;
 const MAX_HP = 19;
 const MAX_LEVEL_WITH_HP_UPGRADE = 25;
@@ -2237,7 +2238,7 @@ function updatePlaying(ctx, dt)
         let offx = 0;
         let markerButtonTotalW = 4 * 24;
         let markerButtonTotalH = 4 * 24;
-        let basex = (screenMode == WindowMode.ScrollHorizontal) ? 0 : hoverTileR.right();
+        let basex = (HOVER_MENU_BOTTOM && screenMode == WindowMode.ScrollHorizontal) ? 0 : hoverTileR.right();
         let basey = hoverTileR.y - markerButtonTotalH * 0.5 + 24 * 0.5;
         if(basex + markerButtonTotalW > worldR.right())
         {
@@ -2254,7 +2255,7 @@ function updatePlaying(ctx, dt)
             basey = 0;
         }
 
-        if (screenMode == WindowMode.ScrollHorizontal) {
+        if (HOVER_MENU_BOTTOM && screenMode == WindowMode.ScrollHorizontal) {
             basey = backBuffer.height - 24*2
         }
 
@@ -2270,7 +2271,7 @@ function updatePlaying(ctx, dt)
             hoverRects.push(r);
             hoverMarkers.push(ALL_MARKERS[i]);
             cols++;
-            if (screenMode == WindowMode.ScrollHorizontal) {
+            if (HOVER_MENU_BOTTOM && screenMode == WindowMode.ScrollHorizontal) {
                 if (cols == 8) {
                     cols = 0
                     offy += r.h
@@ -2323,7 +2324,7 @@ function updatePlaying(ctx, dt)
         for(let i = 0; i < hoverRects.length; i++)
         {
             let r = hoverRects[i];
-            if(r.contains(mouseHudX, mouseHudY))
+            if(r.contains(HOVER_MENU_BOTTOM ? mouseHudX : mousex, HOVER_MENU_BOTTOM ? mouseHudY : mousey))
             {
                 hoveringOverTileIndex = i;
             }
@@ -3447,10 +3448,12 @@ function updatePlaying(ctx, dt)
 
     // hud
     let prevCtx = ctx
+    let hudCtx = null
     if (screenMode == WindowMode.ScrollHorizontal) {
         ctx = get2DContext(hudBuffer);
         ctx.clearRect(0, 0, hudBuffer.width, hudBuffer.height);
         ctx.imageSmoothingEnabled = false;
+        hudCtx = ctx
     }
         
     drawFrame(ctx, stripHUD, 0, HUDRect.centerx() + (screenMode == WindowMode.ScrollHorizontal ? 0.5 : 0) , HUDRect.centery());
@@ -3647,6 +3650,9 @@ function updatePlaying(ctx, dt)
         ctx.restore();
     }
         
+    // restore from hudBUffer ctx
+    ctx = prevCtx
+
     // menu rendering
     if(state.hoverMenu.isActive())
     {
@@ -3655,12 +3661,12 @@ function updatePlaying(ctx, dt)
         // render a frame over the selected actor
         // @ts-ignore
         let r = getRectForTile(state.hoverMenu.actor.tx, state.hoverMenu.actor.ty);
-        drawFrame(prevCtx, stripButtons, 40, r.centerx(), r.centery());
+        drawFrame(ctx, stripButtons, 40, r.centerx(), r.centery());
 
         for(let i = 0; i < hoverRects.length; i++)
         {
             let r = hoverRects[i];
-            drawFrame(ctx, stripIconsBig, 2, r.centerx(), r.centery());
+            drawFrame(HOVER_MENU_BOTTOM && hudCtx ? hudCtx : ctx, stripIconsBig, 2, r.centerx(), r.centery());
             let offy = state.lastHoveredHoverButtonIndex == i ? 0 : 0;
             drawMarker(ctx, hoverMarkers[i], r.centerx(), r.centery()+offy);
         }
@@ -3679,8 +3685,6 @@ function updatePlaying(ctx, dt)
         }
     }
     
-    // restore from hudBUffer ctx
-    ctx = prevCtx
 
     ctx.restore();
 
