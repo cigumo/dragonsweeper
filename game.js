@@ -2196,9 +2196,9 @@ function updatePlaying(ctx, dt)
     worldR.h = backBuffer.height;
     let screenSizeInWorldCoords = scale2world(window.innerWidth, window.innerHeight)
     let HUDRect = new Rect();
-    HUDRect.w = (screenMode == WindowMode.ScrollHorizontal) ? screenSizeInWorldCoords[0] : backBuffer.width;
+    HUDRect.w = (screenMode == WindowMode.ScrollHorizontal) ? hudBuffer.width : backBuffer.width;
     HUDRect.h = 41;
-    HUDRect.x = (screenMode == WindowMode.ScrollHorizontal) ? -backBufferOffsetX : 0
+    HUDRect.x = 0
     HUDRect.y = backBuffer.height - HUDRect.h;
     let oldPlayerHP = state.player.hp;
     let oldPlayerXP = state.player.xp;
@@ -2237,7 +2237,7 @@ function updatePlaying(ctx, dt)
         let offx = 0;
         let markerButtonTotalW = 4 * 24;
         let markerButtonTotalH = 4 * 24;
-        let basex = (screenMode == WindowMode.ScrollHorizontal) ? -backBufferOffsetX : hoverTileR.right();
+        let basex = (screenMode == WindowMode.ScrollHorizontal) ? 0 : hoverTileR.right();
         let basey = hoverTileR.y - markerButtonTotalH * 0.5 + 24 * 0.5;
         if(basex + markerButtonTotalW > worldR.right())
         {
@@ -2323,7 +2323,7 @@ function updatePlaying(ctx, dt)
         for(let i = 0; i < hoverRects.length; i++)
         {
             let r = hoverRects[i];
-            if(r.contains(mousex, mousey))
+            if(r.contains(mouseHudX, mouseHudY))
             {
                 hoveringOverTileIndex = i;
             }
@@ -3016,7 +3016,7 @@ function updatePlaying(ctx, dt)
     levelupButtonR.x = heroR.x;
 
     let isLevelupButtonEnabled = state.player.hp > 0 && state.player.xp >= nextLevelXP(state.player.level) && state.status == GameStatus.Playing;
-    let mustLevelup = levelupButtonR.contains(mousex, mousey) && clickedLeft && isLevelupButtonEnabled;
+    let mustLevelup = levelupButtonR.contains(mouseHudX,mouseHudY) && clickedLeft && isLevelupButtonEnabled;
 
     if(debugOn)
     {
@@ -3204,7 +3204,7 @@ function updatePlaying(ctx, dt)
 
     let isRestartButtonEnabled = state.status == GameStatus.Dead;
 
-    if(clickedLeft && levelupButtonR.contains(mousex, mousey) && !isLevelupButtonEnabled && !isRestartButtonEnabled)
+    if(clickedLeft && levelupButtonR.contains(mouseHudX,mouseHudY) && !isLevelupButtonEnabled && !isRestartButtonEnabled)
     {
         startTempHeroAnim(state.player.hp == 1 ? HERO_ITS_A_ME_NAKED : HERO_ITS_A_ME);
         play("jorge", 1);
@@ -3213,7 +3213,7 @@ function updatePlaying(ctx, dt)
 
     let resetGame = false;
     if(keysJustPressed.includes('r')) resetGame = true;
-    if(clickedLeft && levelupButtonR.contains(mousex, mousey) && isRestartButtonEnabled)
+    if(clickedLeft && levelupButtonR.contains(mouseHudX, mouseHudY) && isRestartButtonEnabled)
     {
         resetGame = true;
     }
@@ -3233,7 +3233,7 @@ function updatePlaying(ctx, dt)
         nomiconR.x = lerp(13, worldR.right() - nomiconR.w - 5, 1 - state.bookLocationElapsed/BOOK_MOVEMENT_DURATION);
     nomiconR.y = HUDRect.centery() - nomiconR.h * 0.5;
 
-    if(clickedLeft && nomiconR.contains(mousex, mousey))
+    if(clickedLeft && nomiconR.contains(mouseHudX,mouseHudY))
     {
         state.showingMonsternomicon = !state.showingMonsternomicon;
         if(!state.showingMonsternomicon) state.bookPage = 0;
@@ -3269,7 +3269,7 @@ function updatePlaying(ctx, dt)
     }
     state.animationsFX = state.animationsFX.filter(anim => !anim.timer.finished);
 
-    let clickedHUD = clickedLeft && HUDRect.contains(mousex, mousey);
+    let clickedHUD = clickedLeft && HUDRect.contains(mouseHudX,mouseHudY);
 
     // hero animations
     if(state.player.hp == 0)
@@ -3434,6 +3434,10 @@ function updatePlaying(ctx, dt)
         ctx.restore();
     }
 
+    if(state.crownAnimation.running())
+    {
+        state.crownAnimation.update(dt);
+    }
 
     // monsternomicon
     if(state.showingMonsternomicon)
@@ -3442,7 +3446,13 @@ function updatePlaying(ctx, dt)
     }
 
     // hud
-    //drawFrame(ctx, stripHUD, 0, HUDRect.centerx(), HUDRect.centery());
+    let prevCtx = ctx
+    if (screenMode == WindowMode.ScrollHorizontal) {
+        ctx = get2DContext(hudBuffer);
+        ctx.clearRect(0, 0, hudBuffer.width, hudBuffer.height);
+        ctx.imageSmoothingEnabled = false;
+    }
+        
     drawFrame(ctx, stripHUD, 0, HUDRect.centerx() + (screenMode == WindowMode.ScrollHorizontal ? 0.5 : 0) , HUDRect.centery());
     
     // hero
@@ -3569,8 +3579,8 @@ function updatePlaying(ctx, dt)
         // drawFrame(ctx, stripLevelupButtons, 2, levelupButtonR.centerx(), levelupButtonR.centery());
     }
 
-   // book icon
-if (state.status != GameStatus.Dead || (screenMode != WindowMode.ScrollHorizontal)) {    
+    // book iconXS
+    if (state.status != GameStatus.Dead || (screenMode != WindowMode.ScrollHorizontal)) {    
         let bookSine = (Math.sin(timeElapsed*5)+1)*0.5 * 5 * (nomiconWasEverRead ? 0 : 1);
     
         ctx.save();
@@ -3623,6 +3633,7 @@ if (state.status != GameStatus.Dead || (screenMode != WindowMode.ScrollHorizonta
     //     drawMultiline(ctx, fontHUD, [msg, "< win the game"], levelupButtonR.right() + 5, HUDRect.centery(), FONT_VCENTER);
     // }
 
+    // leveup animation
     if(state.levelupAnimation.running())
     {
         state.levelupAnimation.update(dt);
@@ -3635,13 +3646,7 @@ if (state.status != GameStatus.Dead || (screenMode != WindowMode.ScrollHorizonta
         drawFrame(ctx, stripLevelup, state.levelupAnimation.frame(), 0, 0);
         ctx.restore();
     }
-
-    if(state.crownAnimation.running())
-    {
-        state.crownAnimation.update(dt);
-    }
-    
-
+        
     // menu rendering
     if(state.hoverMenu.isActive())
     {
@@ -3650,7 +3655,7 @@ if (state.status != GameStatus.Dead || (screenMode != WindowMode.ScrollHorizonta
         // render a frame over the selected actor
         // @ts-ignore
         let r = getRectForTile(state.hoverMenu.actor.tx, state.hoverMenu.actor.ty);
-        drawFrame(ctx, stripButtons, 40, r.centerx(), r.centery());
+        drawFrame(prevCtx, stripButtons, 40, r.centerx(), r.centery());
 
         for(let i = 0; i < hoverRects.length; i++)
         {
@@ -3674,7 +3679,8 @@ if (state.status != GameStatus.Dead || (screenMode != WindowMode.ScrollHorizonta
         }
     }
     
-
+    // restore from hudBUffer ctx
+    ctx = prevCtx
 
     ctx.restore();
 

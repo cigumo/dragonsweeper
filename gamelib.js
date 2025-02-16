@@ -19,6 +19,7 @@ let WORLDH = 600;
 let hScrollMinAspect = 0.58; // limits how thin can the screen be (iPhone 13 mini: 0.604)
 let backBuffer;
 let upscaledBackBuffer;
+let hudBuffer;
 let smoothing = false;
 let playerInteracted = false;
 let allSounds = [];
@@ -29,6 +30,8 @@ let mouseScreenX = 0;
 let mouseScreenY = 0;
 let mousex = 0;
 let mousey = 0;
+let mouseHudX = 0;
+let mouseHudY = 0;
 let mousePressed = false;
 let mouseJustPressed = false;
 let mousePressedRight = false;
@@ -233,6 +236,7 @@ function fitCanvas(forceMode)
 {
     backBufferOffsetX = 0
     backBufferOffsetY = 0
+    hudBuffer = null
     
     let windowW = window.innerWidth;
     let windowH = window.innerHeight;
@@ -279,6 +283,11 @@ function fitCanvas(forceMode)
         let aspect = clamp(hScrollMinAspect, 1, windowW/windowH)
         targetH = windowW / aspect
         targetW = targetH * WORLDW/WORLDH
+
+        hudBuffer = document.createElement("canvas");
+        hudBuffer.height = WORLDH;
+        hudBuffer.width = WORLDH * aspect
+        hudBuffer.style.imageRendering = "pixelated;crisp-edges";
     }
     canvas.width = targetW;
     canvas.height = targetH;
@@ -469,7 +478,7 @@ function onLoadPage()
     upscaledBackBuffer = document.createElement("canvas");
     upscaledBackBuffer.width = backBuffer.width * 2;
     upscaledBackBuffer.height = backBuffer.height * 2;
-
+    
     canvas = document.createElement("canvas");
     fitCanvas();
     document.body.appendChild(canvas);
@@ -550,6 +559,14 @@ function onInternalUpdate(now)
     let mxy = screen2world(mouseScreenX,mouseScreenY)
     mousex = mxy[0]
     mousey = mxy[1]
+
+    if (screenMode == WindowMode.ScrollHorizontal) {
+        mouseHudX = mousex + backBufferOffsetX
+        mouseHudY = mousey + backBufferOffsetY
+    } else {
+        mouseHudX = mousex
+        mouseHudY = mousey
+    }
     
     if(pendingStuffToLoad > 0)
     {
@@ -580,6 +597,12 @@ function onInternalUpdate(now)
     else
     {
         ctx.drawImage(backBuffer, 0, 0, backBuffer.width, backBuffer.height, 0, 0, canvas.width, canvas.height);
+        if (hudBuffer) {
+            ctx.imageSmoothingEnabled = false
+            let scaledHud = scaleWorld2screen(hudBuffer.width, hudBuffer.height)
+            ctx.drawImage(hudBuffer, 0,0, hudBuffer.width, hudBuffer.height, 0,0, scaledHud[0],scaledHud[1])
+            ctx.imageSmoothingEnabled = true
+        }
     }
 
     keysJustPressed = [];
@@ -1240,6 +1263,12 @@ function scale2world(w,h)
 {
     let f = (backBuffer.height / canvas.height)
     return [f*w, f*h]
+}
+
+function scaleWorld2screen(w,h)
+{
+    let f = (backBuffer.height / canvas.height)
+    return [w/f, h/f]
 }
 
 function getBackBufferDragLimits()
