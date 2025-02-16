@@ -2178,10 +2178,12 @@ function updateGeneratingDungeon(ctx, dt)
 
     let middle = []
     if (screenMode == WindowMode.ScrollHorizontal) {
-        middle = scale2world(window.innerWidth/2,window.innerHeight/2)
+        middle = scale2world(window.innerWidth/2,canvas.height/2)
+    } else if (screenMode == WindowMode.ScrollVertical) {
+        middle = scale2world(canvas.width/2,window.innerHeight/2)
     } else {
         middle = [worldR.centerx(),worldR.centery()]
-    }    
+    }
     fontHUD.drawLine(ctx, "building dragon lair...", middle[0],middle[1], FONT_CENTER|FONT_VCENTER);
     ctx.restore();
 }
